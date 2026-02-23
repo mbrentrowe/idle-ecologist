@@ -1,0 +1,13 @@
+{
+	"folders": [
+		{
+			"path": "../Finance App Prototype"
+		},
+		{
+			"path": "."
+		}
+	],
+	"settings": {
+		"liveServer.settings.multiRootWorkspaceName": "Idle Ecologist Prototype"
+	}
+}

@@ -1,0 +1,37 @@
+{
+    "expandedProjectPaths": [
+    ],
+    "fileStates": {
+        "IdleEcologist.tmj": {
+            "scale": 4,
+            "selectedLayer": 1,
+            "viewCenter": {
+                "x": 149.5,
+                "y": 135
+            }
+        },
+        "SpringBase.tsx": {
+            "scaleInDock": 3,
+            "scaleInEditor": 1
+        },
+        "SpringCrops.tsx": {
+            "scaleInDock": 2,
+            "scaleInEditor": 2
+        },
+        "playerHouse.tsx": {
+            "scaleInDock": 1,
+            "scaleInEditor": 1
+        }
+    },
+    "openFiles": [
+        "IdleEcologist.tmj",
+        "SpringCrops.tsx",
+        "playerHouse.tsx"
+    ],
+    "recentFiles": [
+        "playerHouse.tsx",
+        "SpringCrops.tsx",
+        "IdleEcologist.tmj",
+        "SpringBase.tsx"
+    ]
+}

@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0, minimum-scale=1.0">
+
+  <title>Idle Ecologist - JS Version</title>
+  <style>
+    body { margin: 0; background: #222; }
+    html, body {
+      height: 100%;
+      width: 100%;
+      margin: 0;
+      padding: 0;
+      background: #222;
+      overflow: hidden;
+    }
+    body, html {
+      height: 100%;
+      width: 100%;
+      margin: 0;
+      padding: 0;
+      background: #222;
+      overflow: hidden;
+    }
+    #gameContainer {
+      display: flex;
+      flex-direction: column;
+      width: 100vw;
+      min-width: 100vw;
+      height: 100vh;
+      min-height: 100vh;
+      background: #222;
+      overflow: hidden;
+      touch-action: none;
+    }
+    #menuBar {
+      width: 100vw;
+      min-width: 100vw;
+      height: 48px;
+      min-height: 48px;
+      background: transparent;
+      pointer-events: auto;
+      display: block;
+      flex-shrink: 0;
+      position: fixed;
+      left: 0;
+      top: 0;
+      z-index: 20;
+    }
+    #gameCanvas {
+      display: block;
+      background: #444;
+      width: 100vw;
+      min-width: 100vw;
+      min-height: 120px;
+      flex: 1 1 0%;
+      height: 0;
+    }
+    #bottomBar {
+      width: 100vw;
+      min-width: 100vw;
+      height: 56px;
+      min-height: 56px;
+      background: transparent;
+      pointer-events: auto;
+      display: block;
+      flex-shrink: 0;
+      position: fixed;
+      left: 0;
+      bottom: 0;
+      z-index: 20;
+    }
+    #uiLayer {
+      position: absolute;
+      left: 0;
+      top: 0;
+      width: 100vw;
+      height: 100vh;
+      pointer-events: none;
+      z-index: 10;
+    }
+  </style>
+</head>
+<body>
+  <div id="gameContainer">
+    <canvas id="menuBar"></canvas>
+    <canvas id="gameCanvas"></canvas>
+    <canvas id="bottomBar"></canvas>
+    <div id="uiLayer"></div>
+  </div>
+  <script>
+    // Keep BOTTOM_BAR_HEIGHT in sync with public/constants.js
+    const BOTTOM_BAR_HEIGHT = 56;
+    // Responsive canvas resize
+    function resizeGameCanvas() {
+      const menuBar = document.getElementById('menuBar');
+      const bottomBar = document.getElementById('bottomBar');
+      const canvas = document.getElementById('gameCanvas');
+      const w = window.innerWidth;
+      menuBar.width = w;
+      menuBar.height = 48;
+      bottomBar.width = w;
+      bottomBar.height = BOTTOM_BAR_HEIGHT;
+      canvas.width = w;
+      // Use window.innerHeight minus menuBar and bottomBar heights
+      const available = window.innerHeight - 48 - BOTTOM_BAR_HEIGHT;
+      canvas.height = available > 0 ? available : 120;
+    }
+    window.addEventListener('resize', resizeGameCanvas);
+    window.addEventListener('orientationchange', resizeGameCanvas);
+    document.addEventListener('DOMContentLoaded', resizeGameCanvas);
+  </script>
+  <script type="module" src="js-tiled-loader.js"></script>
+</body>
+</html>

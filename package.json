@@ -1,0 +1,17 @@
+{
+  "name": "idle-ecologist-phaser-starter",
+  "version": "1.0.0",
+  "description": "Idle Ecologist Phaser Starter Project",
+  "main": "dist/main.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "npm run build && npx serve public"
+  },
+  "dependencies": {
+    "phaser": "^3.60.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.0.0",
+    "serve": "^14.0.1"
+  }
+}

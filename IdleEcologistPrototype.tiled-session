@@ -1,0 +1,47 @@
+{
+    "Map/SizeTest": {
+        "height": 4300,
+        "width": 2
+    },
+    "activeFile": "IdleEcologistPrototype.tmj",
+    "expandedProjectPaths": [
+    ],
+    "fileStates": {
+        "Assets/playerHouse.tsx": {
+            "scaleInDock": 1
+        },
+        "IdleEcologistMasterSpriteSheet.tsx": {
+            "scaleInDock": 2,
+            "scaleInEditor": 1
+        },
+        "IdleEcologistPrototype.tmj": {
+            "scale": 5.5,
+            "selectedLayer": 0,
+            "viewCenter": {
+                "x": 46.09090909090909,
+                "y": 157.0909090909091
+            }
+        }
+    },
+    "last.imagePath": "E:/Idle Ecologist Prototype/Idle Ecologist Workspace/public/Assets/Tilesets",
+    "map.height": 100,
+    "map.lastUsedFormat": "json",
+    "map.tileHeight": 16,
+    "map.tileWidth": 16,
+    "map.width": 100,
+    "openFiles": [
+        "IdleEcologistPrototype.tmj",
+        "IdleEcologistMasterSpriteSheet.tsx"
+    ],
+    "project": "IdleEcologistPrototype.tiled-project",
+    "property.type": "int",
+    "recentFiles": [
+        "IdleEcologistMasterSpriteSheet.tsx",
+        "IdleEcologistPrototype.tmj"
+    ],
+    "tileset.lastUsedFormat": "tsx",
+    "tileset.tileSize": {
+        "height": 16,
+        "width": 16
+    }
+}
