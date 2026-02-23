@@ -13,7 +13,7 @@ import { saveGame, loadGame, clearSave } from './saveSystem.js';
 import { initSettingsPanel } from './settingsPanel.js';
 import { initEventsPanel } from './eventsPanel.js';
 import { initSchedulePanel } from './schedulePanel.js';
-import { allEvents } from '../src/eventTemplates.js';
+import { allEvents } from './src/eventTemplates.js';
 import { BOTTOM_BAR_HEIGHT } from './constants.js';
 import { createPlayerAnimator, ACTIONS, DIRS } from './playerAnimator.js';
 import { buildNavGrid, findPath } from './pathfinder.js';
