@@ -565,24 +565,36 @@ async function main() {
       const ROW1 = 24;
       const ROW2 = 64;
 
-      const afterEnergy = drawGoldAndEnergy(ROW1, true);
-      drawDivider(afterEnergy, 4, 44);
-
+      // Measure date/time FIRST so we can clip gold+energy away from it
       const dateStr      = calendar.getDateString();
       const timeStr      = calendar.getTimeOfDay();
-      const dateTimeText = dateStr + '   ' + timeStr;
-      menuBarCtx.font = 'bold 12px sans-serif';
-      menuBarCtx.fillStyle = '#e8e8e8';
-      menuBarCtx.textAlign = 'right';
-      menuBarCtx.textBaseline = 'middle';
+      const dateTimeText = dateStr + (typeof timeStr !== "undefined" ? "   " + timeStr : "");
+      menuBarCtx.font = "bold 12px sans-serif";
+      const dtW = menuBarCtx.measureText(dateTimeText).width;
+      const dtLeft = mw - pad - dtW;
+
+      // Draw gold+energy clipped to left of date/time section
+      menuBarCtx.save();
+      menuBarCtx.beginPath();
+      menuBarCtx.rect(0, 0, dtLeft - pad * 2, 48);
+      menuBarCtx.clip();
+      const afterEnergy = drawGoldAndEnergy(ROW1, true);
+      menuBarCtx.restore();
+      drawDivider(Math.min(afterEnergy, dtLeft - pad * 2), 4, 44);
+
+      // Date/time (right of row 1)
+      menuBarCtx.font = "bold 12px sans-serif";
+      menuBarCtx.fillStyle = "#e8e8e8";
+      menuBarCtx.textAlign = "right";
+      menuBarCtx.textBaseline = "middle";
       menuBarCtx.fillText(dateTimeText, mw - pad, ROW1);
 
       // Collapse hint (row 2 right)
-      menuBarCtx.font = 'bold 9px sans-serif';
-      menuBarCtx.fillStyle = 'rgba(255,215,0,0.45)';
-      menuBarCtx.textAlign = 'right';
-      menuBarCtx.textBaseline = 'middle';
-      menuBarCtx.fillText('\u25B2 tap to collapse', mw - pad, ROW2);
+      menuBarCtx.font = "bold 9px sans-serif";
+      menuBarCtx.fillStyle = "rgba(255,215,0,0.45)";
+      menuBarCtx.textAlign = "right";
+      menuBarCtx.textBaseline = "middle";
+      menuBarCtx.fillText("\u25B2 tap to collapse", mw - pad, ROW2);
 
       if (nextCrop && nextIconGID) {
         menuBarCtx.imageSmoothingEnabled = false;
@@ -591,31 +603,50 @@ async function main() {
           (iconId % columns) * tileSize, Math.floor(iconId / columns) * tileSize, tileSize, tileSize,
           pad, ROW2 - tileSize / 2, tileSize, tileSize);
 
-        menuBarCtx.font = 'bold 12px sans-serif';
-        menuBarCtx.fillStyle = '#ffd700';
-        menuBarCtx.textAlign = 'left';
-        menuBarCtx.textBaseline = 'middle';
+        menuBarCtx.font = "bold 12px sans-serif";
+        menuBarCtx.fillStyle = "#ffd700";
+        menuBarCtx.textAlign = "left";
+        menuBarCtx.textBaseline = "middle";
         const nameX = pad + tileSize + 4;
         const nameW = menuBarCtx.measureText(nextCropName).width;
         menuBarCtx.fillText(nextCropName, nameX, ROW2);
 
-        const reqX    = nameX + nameW + 8;
-        const reqRoom = mw - pad - 90 - reqX;
-        if (reqRoom > 40) {
-          menuBarCtx.font = '11px sans-serif';
-          menuBarCtx.fillStyle = 'rgba(255,255,255,0.75)';
-          menuBarCtx.fillText(truncate(menuBarCtx, nextReq, reqRoom), reqX, ROW2);
+        // Scrolling marquee for requirement text
+        const reqX       = nameX + nameW + 8;
+        const hintW      = menuBarCtx.measureText("\u25B2 tap to collapse").width + pad + 12;
+        const reqAreaW   = mw - reqX - hintW;
+        if (reqAreaW > 20) {
+          menuBarCtx.font = "11px sans-serif";
+          menuBarCtx.fillStyle = "rgba(255,255,255,0.75)";
+          menuBarCtx.textAlign = "left";
+          menuBarCtx.textBaseline = "middle";
+          const reqTW = menuBarCtx.measureText(nextReq).width;
+          if (reqTW <= reqAreaW) {
+            // Text fits  draw statically
+            menuBarCtx.fillText(nextReq, reqX, ROW2);
+          } else {
+            // Marquee scroll: clip to the available area, draw twice for seamless loop
+            const gap = 40;
+            const loopW = reqTW + gap;
+            const offset = reqScrollOffset % loopW;
+            menuBarCtx.save();
+            menuBarCtx.beginPath();
+            menuBarCtx.rect(reqX, ROW2 - 12, reqAreaW, 24);
+            menuBarCtx.clip();
+            menuBarCtx.fillText(nextReq, reqX - offset, ROW2);
+            menuBarCtx.fillText(nextReq, reqX - offset + loopW, ROW2);
+            menuBarCtx.restore();
+          }
         }
       } else {
-        menuBarCtx.font = '11px sans-serif';
-        menuBarCtx.fillStyle = 'rgba(255,255,255,0.4)';
-        menuBarCtx.textAlign = 'left';
-        menuBarCtx.textBaseline = 'middle';
-        menuBarCtx.fillText('All crops unlocked', pad, ROW2);
+        menuBarCtx.font = "11px sans-serif";
+        menuBarCtx.fillStyle = "rgba(255,255,255,0.4)";
+        menuBarCtx.textAlign = "left";
+        menuBarCtx.textBaseline = "middle";
+        menuBarCtx.fillText("All crops unlocked", pad, ROW2);
       }
       return;
     }
-
     // DESKTOP: single-row layout
     const cy = mh / 2;
     const afterEnergy = drawGoldAndEnergy(cy, false);
@@ -830,12 +861,14 @@ async function main() {
   //   Game logic stays in the 250ms setInterval; this loop only renders.
   const WALK_SPEED_PX_PER_SEC = 300; // world px/sec player travels between zones
   let _lastRafTs = null;
+  let reqScrollOffset = 0;
   let currentActivity = 'idle'; // updated by setInterval: 'farming'|'socializing'|'sleeping'|'idle'
 
   function renderLoop(ts) {
     const dt = _lastRafTs != null ? Math.min((ts - _lastRafTs) / 1000, 0.1) : 0;
     _lastRafTs = ts;
 
+    if (isMobileLayout() && !menuBarCollapsed) reqScrollOffset += 40 * dt;
     // Lerp player toward target position
     const dx   = player.targetX - player.x;
     const dy   = player.targetY - player.y;
