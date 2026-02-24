@@ -3,7 +3,7 @@
         "height": 4300,
         "width": 2
     },
-    "activeFile": "IdleEcologistPrototype.tmj",
+    "activeFile": "public/IdleEcologistPrototype.tmj",
     "expandedProjectPaths": [
     ],
     "fileStates": {
@@ -11,15 +11,31 @@
             "scaleInDock": 1
         },
         "IdleEcologistMasterSpriteSheet.tsx": {
-            "scaleInDock": 2,
+            "scaleInDock": 3,
             "scaleInEditor": 1
         },
         "IdleEcologistPrototype.tmj": {
-            "scale": 5.5,
-            "selectedLayer": 0,
+            "scale": 1.5,
+            "selectedLayer": 7,
             "viewCenter": {
-                "x": 46.09090909090909,
-                "y": 157.0909090909091
+                "x": 418.66666666666663,
+                "y": 664
+            }
+        },
+        "SpringWaterAndPaths.tsx": {
+            "scaleInDock": 3,
+            "scaleInEditor": 1
+        },
+        "playerSpriteSheet.tsx": {
+            "scaleInDock": 1.5,
+            "scaleInEditor": 1
+        },
+        "public/IdleEcologistPrototype.tmj": {
+            "scale": 1.5,
+            "selectedLayer": 7,
+            "viewCenter": {
+                "x": 591.9999999999999,
+                "y": 461.33333333333326
             }
         }
     },
@@ -30,13 +46,18 @@
     "map.tileWidth": 16,
     "map.width": 100,
     "openFiles": [
-        "IdleEcologistPrototype.tmj",
-        "IdleEcologistMasterSpriteSheet.tsx"
+        "public/IdleEcologistPrototype.tmj",
+        "IdleEcologistMasterSpriteSheet.tsx",
+        "playerSpriteSheet.tsx",
+        "SpringWaterAndPaths.tsx"
     ],
     "project": "IdleEcologistPrototype.tiled-project",
     "property.type": "int",
     "recentFiles": [
+        "SpringWaterAndPaths.tsx",
+        "playerSpriteSheet.tsx",
         "IdleEcologistMasterSpriteSheet.tsx",
+        "public/IdleEcologistPrototype.tmj",
         "IdleEcologistPrototype.tmj"
     ],
     "tileset.lastUsedFormat": "tsx",
