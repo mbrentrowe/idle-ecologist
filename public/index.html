@@ -37,8 +37,6 @@
     #menuBar {
       width: 100vw;
       min-width: 100vw;
-      height: 48px;
-      min-height: 48px;
       background: transparent;
       pointer-events: auto;
       display: block;
@@ -93,23 +91,25 @@
     // Keep BOTTOM_BAR_HEIGHT in sync with public/constants.js
     const BOTTOM_BAR_HEIGHT = 56;
     // Responsive canvas resize
-    function resizeGameCanvas() {
+    window.resizeGameCanvas = function resizeGameCanvas() {
       const menuBar = document.getElementById('menuBar');
       const bottomBar = document.getElementById('bottomBar');
       const canvas = document.getElementById('gameCanvas');
       const w = window.innerWidth;
+      const menuH = window.currentMenuBarHeight || 48;
       menuBar.width = w;
-      menuBar.height = 48;
+      menuBar.height = menuH;
+      menuBar.style.height = menuH + 'px';
       bottomBar.width = w;
       bottomBar.height = BOTTOM_BAR_HEIGHT;
       canvas.width = w;
       // Use window.innerHeight minus menuBar and bottomBar heights
-      const available = window.innerHeight - 48 - BOTTOM_BAR_HEIGHT;
+      const available = window.innerHeight - menuH - BOTTOM_BAR_HEIGHT;
       canvas.height = available > 0 ? available : 120;
-    }
-    window.addEventListener('resize', resizeGameCanvas);
-    window.addEventListener('orientationchange', resizeGameCanvas);
-    document.addEventListener('DOMContentLoaded', resizeGameCanvas);
+    };
+    window.addEventListener('resize', window.resizeGameCanvas);
+    window.addEventListener('orientationchange', window.resizeGameCanvas);
+    document.addEventListener('DOMContentLoaded', window.resizeGameCanvas);
   </script>
   <script type="module" src="js-tiled-loader.js"></script>
 </body>

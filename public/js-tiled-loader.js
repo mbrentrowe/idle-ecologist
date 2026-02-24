@@ -1,4 +1,4 @@
-// js-tiled-loader.js - Loads Tiled map and tileset for vanilla JS
+﻿// js-tiled-loader.js - Loads Tiled map and tileset for vanilla JS
 import { loadMap } from './map.js';
 import { renderTileLayer } from './tilemapRenderer.js';
 import { renderMenuBar } from './menuBarRenderer.js';
@@ -254,6 +254,31 @@ async function main() {
   const menuBar = document.getElementById('menuBar');
   const menuBarCtx = menuBar.getContext('2d');
 
+  // Menu bar collapse/expand (mobile only)
+  const MENU_BAR_DESKTOP_H   = 48;
+  const MENU_BAR_MOBILE_H    = 80;
+  const MENU_BAR_COLLAPSED_H = 14;
+  let menuBarCollapsed = false;
+  function isMobileLayout() { return window.innerWidth < 640; }
+  function applyMenuBarHeight() {
+    const h = isMobileLayout()
+      ? (menuBarCollapsed ? MENU_BAR_COLLAPSED_H : MENU_BAR_MOBILE_H)
+      : MENU_BAR_DESKTOP_H;
+    window.currentMenuBarHeight = h;
+    menuBar.height       = h;
+    menuBar.style.height = h + 'px';
+    if (typeof window.resizeGameCanvas === 'function') window.resizeGameCanvas();
+  }
+  // Initialise height immediately based on screen width
+  applyMenuBarHeight();
+  menuBar.addEventListener('click', () => {
+    if (isMobileLayout()) {
+      menuBarCollapsed = !menuBarCollapsed;
+      applyMenuBarHeight();
+      drawMenuBar();
+    }
+  });
+
   // Bottom bar
   const bottomBar = document.getElementById('bottomBar');
   const bottomBarCtx = bottomBar.getContext('2d');
@@ -404,112 +429,61 @@ async function main() {
   });
 
   function drawMenuBar() {
-    const mw   = menuBar.width;
-    const mh   = menuBar.height;
-    const cy   = mh / 2;
-    const pad  = 8;
+    const mw       = menuBar.width;
+    const mh       = menuBar.height;
+    const pad      = 8;
     const tileSize = 16;
     const columns  = 125;
-    menuBarCtx.clearRect(0, 0, mw, mh);
-    renderMenuBar(menuBarCtx, tilesetImage, mw, 16);
+    const isMobile = isMobileLayout();
 
-    // Helper: draw a vertical divider line
-    function drawDivider(x) {
+    menuBarCtx.clearRect(0, 0, mw, mh);
+
+    // COLLAPSED: thin strip
+    if (isMobile && menuBarCollapsed) {
+      menuBarCtx.fillStyle = '#1a1008';
+      menuBarCtx.fillRect(0, 0, mw, mh);
+      menuBarCtx.font = 'bold 9px sans-serif';
+      menuBarCtx.fillStyle = '#ffd700';
+      menuBarCtx.textAlign = 'center';
+      menuBarCtx.textBaseline = 'middle';
+      menuBarCtx.fillText('\u25BC  tap to expand', mw / 2, mh / 2);
+      return;
+    }
+
+    // Background tiles (covers 0-48px = 3 tile rows)
+    renderMenuBar(menuBarCtx, tilesetImage, mw, tileSize);
+
+    // Extra background row for mobile expanded section (48-80px)
+    if (isMobile && mh > 48) {
+      menuBarCtx.fillStyle = '#201409';
+      menuBarCtx.fillRect(0, 48, mw, mh - 48);
+      menuBarCtx.strokeStyle = 'rgba(255,215,0,0.15)';
+      menuBarCtx.lineWidth = 1;
+      menuBarCtx.beginPath();
+      menuBarCtx.moveTo(0, 48.5);
+      menuBarCtx.lineTo(mw, 48.5);
+      menuBarCtx.stroke();
+    }
+
+    function drawDivider(x, y1, y2) {
       menuBarCtx.save();
       menuBarCtx.strokeStyle = 'rgba(255,255,255,0.22)';
       menuBarCtx.lineWidth = 1;
       menuBarCtx.beginPath();
-      menuBarCtx.moveTo(x + 0.5, 4);
-      menuBarCtx.lineTo(x + 0.5, mh - 4);
+      menuBarCtx.moveTo(x + 0.5, y1 != null ? y1 : 4);
+      menuBarCtx.lineTo(x + 0.5, y2 != null ? y2 : mh - 4);
       menuBarCtx.stroke();
       menuBarCtx.restore();
     }
 
-    // Helper: truncate text with ellipsis if wider than maxW
     function truncate(ctx, text, maxW) {
       if (ctx.measureText(text).width <= maxW) return text;
       let t = text;
-      while (t.length > 0 && ctx.measureText(t + '�').width > maxW) t = t.slice(0, -1);
-      return t + '�';
+      while (t.length > 0 && ctx.measureText(t + '\u2026').width > maxW) t = t.slice(0, -1);
+      return t + '\u2026';
     }
 
-    // -- SECTION 1: Gold (left) ------------------------------------------
-    const goldGID  = 1160;
-    const goldId   = goldGID - 1;
-    const goldSx   = (goldId % columns) * tileSize;
-    const goldSy   = Math.floor(goldId / columns) * tileSize;
-    menuBarCtx.drawImage(tilesetImage, goldSx, goldSy, tileSize, tileSize,
-      pad, cy - tileSize / 2, tileSize, tileSize);
-
-    menuBarCtx.font = 'bold 15px sans-serif';
-    menuBarCtx.fillStyle = '#ffd700';
-    menuBarCtx.textAlign = 'left';
-    menuBarCtx.textBaseline = 'middle';
-    const goldText  = gold.getFormatted();
-    const goldTextX = pad + tileSize + 6;
-    menuBarCtx.fillText(goldText, goldTextX, cy);
-    let goldSectionRight = goldTextX + menuBarCtx.measureText(goldText).width + 8;
-
-    drawDivider(goldSectionRight + 2);
-
-    // -- ENERGY bar (sprite tiles, right of gold) --------------------------
-    // Empty bar: GID 2079 (left) 2080 (middle) 2081 (right)
-    // Full bar:  GID 2070 (left) 2071 (middle) 2072 (right)
-    // Rendered at 2× native size (32×32 per tile), centred vertically.
-    const tileD    = Math.round(mh * 0.6);          // ~60% of bar height per tile
-    const midCount = 3;                              // middle tiles between the caps
-    const totalBarW = tileD * (2 + midCount);        // caps + middles
-    const barX      = goldSectionRight + 4;
-    const barY      = Math.round(cy - tileD / 2);
-    const energyPct = energy / 100;
-
-    // Draws one bar tile (from master tileset, firstgid=1) at display size tileD×tileD
-    function drawBarTile(gid, dx) {
-      const id = gid - 1;
-      const sx = (id % columns) * tileSize;
-      const sy = Math.floor(id / columns) * tileSize;
-      menuBarCtx.drawImage(tilesetImage, sx, sy, tileSize, tileSize, dx, barY, tileD, tileD);
-    }
-
-    menuBarCtx.imageSmoothingEnabled = false;
-
-    // 1. Draw empty bar as background
-    drawBarTile(2079, barX);
-    for (let m = 0; m < midCount; m++) drawBarTile(2080, barX + tileD * (1 + m));
-    drawBarTile(2081, barX + tileD * (1 + midCount));
-
-    // 2. Overlay full bar clipped to current energy percentage
-    const clipW = Math.round(totalBarW * energyPct);
-    if (clipW > 0) {
-      menuBarCtx.save();
-      menuBarCtx.beginPath();
-      menuBarCtx.rect(barX, barY, clipW, tileD);
-      menuBarCtx.clip();
-      drawBarTile(2070, barX);
-      for (let m = 0; m < midCount; m++) drawBarTile(2071, barX + tileD * (1 + m));
-      drawBarTile(2072, barX + tileD * (1 + midCount));
-      menuBarCtx.restore();
-    }
-
-    // Percentage label to the right of the bar
-    menuBarCtx.font = `bold ${Math.max(9, Math.round(mh * 0.27))}px sans-serif`;
-    menuBarCtx.fillStyle = energy < ENERGY_LOW_THRESHOLD ? '#ff8888' : '#d0d0d0';
-    menuBarCtx.textAlign = 'left';
-    menuBarCtx.textBaseline = 'middle';
-    const energyLabel = `${Math.round(energy)}%`;
-    menuBarCtx.fillText(energyLabel, barX + totalBarW + 4, cy);
-    goldSectionRight = barX + totalBarW + 4 + menuBarCtx.measureText(energyLabel).width + pad;
-    drawDivider(goldSectionRight);
-
-    // -- SECTION 3: Date/Time (right) � measure first so we know bounds --
-    menuBarCtx.font = 'bold 13px sans-serif';
-    const dateStr = calendar.getDateString();
-    const timeStr = calendar.getTimeOfDay();
-    const dateTimeText   = `${dateStr}   ${timeStr}`;
-    const dateTimeWidth  = menuBarCtx.measureText(dateTimeText).width;
-    const dateSectionLeft = mw - pad - dateTimeWidth;
-
-    // -- SECTION 2: Unlock progress (middle) ----------------------------
+    // Compute next crop unlock
     const lifetimeGold = Array.from(cropStats.values()).reduce((sum, s) => sum + s.lifetimeSales, 0);
     let nextCrop = null, nextReq = '', nextIconGID = null, nextCropName = '';
     for (const cropId of Object.keys(CROPS)) {
@@ -518,40 +492,159 @@ async function main() {
         nextCrop     = crop;
         nextIconGID  = crop.marketIconGID;
         nextCropName = crop.name;
-        const req    = crop.unlockCriteria;
-        const s      = cropStats.get(req.cropId) || { sold: 0 };
-        nextReq = `Sell ${req.cropSold} ${CROPS[req.cropId]?.name || req.cropId} (${s.sold}/${req.cropSold})  �  Earn ${req.goldEarned.toLocaleString()}g (${lifetimeGold.toLocaleString()}/${req.goldEarned.toLocaleString()})`;
+        const req = crop.unlockCriteria;
+        const s   = cropStats.get(req.cropId) || { sold: 0 };
+        nextReq = 'Sell ' + req.cropSold + ' ' + (CROPS[req.cropId]?.name || req.cropId) +
+                  ' (' + s.sold + '/' + req.cropSold + ')  \u2192  Earn ' +
+                  req.goldEarned.toLocaleString() + 'g (' +
+                  lifetimeGold.toLocaleString() + '/' + req.goldEarned.toLocaleString() + ')';
         break;
       }
     }
 
-    // Dividers first so they sit behind text
-    const div1X = goldSectionRight + 6;
-    if (nextCrop) {
-      drawDivider(div1X);
+    // Draws gold icon + amount + energy bar; returns right edge x
+    function drawGoldAndEnergy(cy, compactBar) {
+      menuBarCtx.imageSmoothingEnabled = false;
+      const goldId = 1159;
+      menuBarCtx.drawImage(tilesetImage,
+        (goldId % columns) * tileSize, Math.floor(goldId / columns) * tileSize, tileSize, tileSize,
+        pad, cy - tileSize / 2, tileSize, tileSize);
+
+      menuBarCtx.font = 'bold 14px sans-serif';
+      menuBarCtx.fillStyle = '#ffd700';
+      menuBarCtx.textAlign = 'left';
+      menuBarCtx.textBaseline = 'middle';
+      const goldText  = gold.getFormatted();
+      const goldTextX = pad + tileSize + 4;
+      menuBarCtx.fillText(goldText, goldTextX, cy);
+      let rightEdge = goldTextX + menuBarCtx.measureText(goldText).width + 6;
+      drawDivider(rightEdge + 2, cy - 14, cy + 14);
+
+      const tileD    = compactBar ? 22 : Math.round(mh * 0.6);
+      const midCount = compactBar ? 2  : 3;
+      const totalBarW = tileD * (2 + midCount);
+      const barX      = rightEdge + 6;
+      const barY      = Math.round(cy - tileD / 2);
+      const energyPct = energy / 100;
+
+      function drawBarTile(gid, dx) {
+        const id = gid - 1;
+        menuBarCtx.drawImage(tilesetImage,
+          (id % columns) * tileSize, Math.floor(id / columns) * tileSize, tileSize, tileSize,
+          dx, barY, tileD, tileD);
+      }
+
+      drawBarTile(2079, barX);
+      for (let m = 0; m < midCount; m++) drawBarTile(2080, barX + tileD * (1 + m));
+      drawBarTile(2081, barX + tileD * (1 + midCount));
+
+      const clipBarW = Math.round(totalBarW * energyPct);
+      if (clipBarW > 0) {
+        menuBarCtx.save();
+        menuBarCtx.beginPath();
+        menuBarCtx.rect(barX, barY, clipBarW, tileD);
+        menuBarCtx.clip();
+        drawBarTile(2070, barX);
+        for (let m = 0; m < midCount; m++) drawBarTile(2071, barX + tileD * (1 + m));
+        drawBarTile(2072, barX + tileD * (1 + midCount));
+        menuBarCtx.restore();
+      }
+
+      const labelFontSize = compactBar ? 11 : Math.max(9, Math.round(mh * 0.27));
+      menuBarCtx.font = 'bold ' + labelFontSize + 'px sans-serif';
+      menuBarCtx.fillStyle = energy < ENERGY_LOW_THRESHOLD ? '#ff8888' : '#d0d0d0';
+      menuBarCtx.textAlign = 'left';
+      menuBarCtx.textBaseline = 'middle';
+      const energyLabel = Math.round(energy) + '%';
+      menuBarCtx.fillText(energyLabel, barX + totalBarW + 4, cy);
+      return barX + totalBarW + 4 + menuBarCtx.measureText(energyLabel).width + pad;
     }
+
+    // MOBILE EXPANDED: 2-row layout
+    if (isMobile) {
+      const ROW1 = 24;
+      const ROW2 = 64;
+
+      const afterEnergy = drawGoldAndEnergy(ROW1, true);
+      drawDivider(afterEnergy, 4, 44);
+
+      const dateStr      = calendar.getDateString();
+      const timeStr      = calendar.getTimeOfDay();
+      const dateTimeText = dateStr + '   ' + timeStr;
+      menuBarCtx.font = 'bold 12px sans-serif';
+      menuBarCtx.fillStyle = '#e8e8e8';
+      menuBarCtx.textAlign = 'right';
+      menuBarCtx.textBaseline = 'middle';
+      menuBarCtx.fillText(dateTimeText, mw - pad, ROW1);
+
+      // Collapse hint (row 2 right)
+      menuBarCtx.font = 'bold 9px sans-serif';
+      menuBarCtx.fillStyle = 'rgba(255,215,0,0.45)';
+      menuBarCtx.textAlign = 'right';
+      menuBarCtx.textBaseline = 'middle';
+      menuBarCtx.fillText('\u25B2 tap to collapse', mw - pad, ROW2);
+
+      if (nextCrop && nextIconGID) {
+        menuBarCtx.imageSmoothingEnabled = false;
+        const iconId = nextIconGID - 1;
+        menuBarCtx.drawImage(tilesetImage,
+          (iconId % columns) * tileSize, Math.floor(iconId / columns) * tileSize, tileSize, tileSize,
+          pad, ROW2 - tileSize / 2, tileSize, tileSize);
+
+        menuBarCtx.font = 'bold 12px sans-serif';
+        menuBarCtx.fillStyle = '#ffd700';
+        menuBarCtx.textAlign = 'left';
+        menuBarCtx.textBaseline = 'middle';
+        const nameX = pad + tileSize + 4;
+        const nameW = menuBarCtx.measureText(nextCropName).width;
+        menuBarCtx.fillText(nextCropName, nameX, ROW2);
+
+        const reqX    = nameX + nameW + 8;
+        const reqRoom = mw - pad - 90 - reqX;
+        if (reqRoom > 40) {
+          menuBarCtx.font = '11px sans-serif';
+          menuBarCtx.fillStyle = 'rgba(255,255,255,0.75)';
+          menuBarCtx.fillText(truncate(menuBarCtx, nextReq, reqRoom), reqX, ROW2);
+        }
+      } else {
+        menuBarCtx.font = '11px sans-serif';
+        menuBarCtx.fillStyle = 'rgba(255,255,255,0.4)';
+        menuBarCtx.textAlign = 'left';
+        menuBarCtx.textBaseline = 'middle';
+        menuBarCtx.fillText('All crops unlocked', pad, ROW2);
+      }
+      return;
+    }
+
+    // DESKTOP: single-row layout
+    const cy = mh / 2;
+    const afterEnergy = drawGoldAndEnergy(cy, false);
+    drawDivider(afterEnergy + 2);
+
+    menuBarCtx.font = 'bold 13px sans-serif';
+    const dateStr      = calendar.getDateString();
+    const timeStr      = calendar.getTimeOfDay();
+    const dateTimeText = dateStr + '   ' + timeStr;
+    const dtWidth      = menuBarCtx.measureText(dateTimeText).width;
+    const dateSectionLeft = mw - pad - dtWidth;
     drawDivider(dateSectionLeft - 8);
 
     if (nextCrop && nextIconGID) {
-      // Clip to the space between the two dividers
-      const clipLeft  = div1X + 10;
+      const clipLeft  = afterEnergy + 16;
       const clipRight = dateSectionLeft - 14;
       const clipW     = clipRight - clipLeft;
-
       if (clipW > 32) {
         menuBarCtx.save();
         menuBarCtx.beginPath();
         menuBarCtx.rect(clipLeft, 0, clipW, mh);
         menuBarCtx.clip();
 
-        // Icon
+        menuBarCtx.imageSmoothingEnabled = false;
         const iconId = nextIconGID - 1;
-        const iconSx = (iconId % columns) * tileSize;
-        const iconSy = Math.floor(iconId / columns) * tileSize;
-        menuBarCtx.drawImage(tilesetImage, iconSx, iconSy, tileSize, tileSize,
+        menuBarCtx.drawImage(tilesetImage,
+          (iconId % columns) * tileSize, Math.floor(iconId / columns) * tileSize, tileSize, tileSize,
           clipLeft, cy - tileSize / 2, tileSize, tileSize);
 
-        // Crop name
         menuBarCtx.font = 'bold 12px sans-serif';
         menuBarCtx.fillStyle = '#ffd700';
         menuBarCtx.textAlign = 'left';
@@ -560,7 +653,6 @@ async function main() {
         const nameW = menuBarCtx.measureText(nextCropName).width;
         menuBarCtx.fillText(nextCropName, nameX, cy);
 
-        // Requirement text � only if there's room
         const reqX    = nameX + nameW + 10;
         const reqRoom = clipRight - reqX - 4;
         if (reqRoom > 40) {
@@ -568,12 +660,10 @@ async function main() {
           menuBarCtx.fillStyle = 'rgba(255,255,255,0.75)';
           menuBarCtx.fillText(truncate(menuBarCtx, nextReq, reqRoom), reqX, cy);
         }
-
         menuBarCtx.restore();
       }
     }
 
-    // -- Date/time -------------------------------------------------------
     menuBarCtx.font = 'bold 13px sans-serif';
     menuBarCtx.fillStyle = '#e8e8e8';
     menuBarCtx.textAlign = 'right';
