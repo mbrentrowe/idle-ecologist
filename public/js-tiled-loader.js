@@ -110,7 +110,7 @@ async function main() {
         artisanZoneTravelTimer = 0;
         artisanZoneTravelIndex = (artisanZoneTravelIndex + 1) % list.length;
         const pt = list[artisanZoneTravelIndex];
-        setPlayerPath(pt.x, pt.y);
+        setPlayerPath(pt.x + (pt.width || 0) / 2, pt.y + (pt.height || 0) / 2);
       }
     }
 
