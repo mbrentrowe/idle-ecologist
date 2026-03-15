@@ -114,6 +114,19 @@ async function main() {
       }
     }
 
+    function hasArtisanWork() {
+      return getUnlockedArtisanZoneList().some(zone => {
+        const cropId = artisanZoneProductMap.get(zone.name);
+        if (!cropId) return false;
+        const cropType = CROPS[cropId];
+        if (!cropType || !cropType.artisanProduct) return false;
+        const ap = cropType.artisanProduct;
+        const sold = cropStats.get(cropId)?.sold ?? 0;
+        if (sold < ap.unlockCropSold) return false;
+        return (cropInventory.get(cropId) || 0) >= ap.cropInputCount;
+      });
+    }
+
   const calendar = new Calendar();
 
   // Gold system
@@ -1246,7 +1259,10 @@ async function main() {
     const sleepingActive    = schedulePanel.isSleepingTime(calendarAccum);
     const artisanActive     = schedulePanel.isArtisanTime(calendarAccum);
     // Track current activity for the rAF animator
-    currentActivity = sleepingActive ? 'sleeping' : artisanActive ? 'artisan' : socializingActive ? 'socializing' : farmingActive ? 'farming' : 'idle';
+    currentActivity = sleepingActive ? 'sleeping'
+      : (artisanActive && hasArtisanWork()) ? 'artisan'
+      : socializingActive ? 'socializing'
+      : farmingActive ? 'farming' : 'idle';
 
     // Accumulate time-spent hours for each activity
     const hoursPerTick = gameSpeed * 24 / DAY_REAL_SECS;
@@ -1350,8 +1366,8 @@ async function main() {
         }
         updatePlayerSocialTravel(gameSpeed);
       } else if (artisanActive) {
-        if (getUnlockedArtisanZoneList().length > 0) updatePlayerArtisanTravel(gameSpeed);
-        else updatePlayerZoneTravel(gameSpeed); // fallback to farm zones until artisan zones bought
+        if (getUnlockedArtisanZoneList().length > 0 && hasArtisanWork()) updatePlayerArtisanTravel(gameSpeed);
+        else updatePlayerZoneTravel(gameSpeed); // no artisan zones or no crops available — fall back to farming
       } else if (farmingActive) {
         updatePlayerZoneTravel(gameSpeed);
       }
