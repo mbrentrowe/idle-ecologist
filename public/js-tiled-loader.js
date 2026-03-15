@@ -1306,10 +1306,12 @@ async function main() {
     return ct.yieldGold / cycleTime;
   }
 
-  /** Returns the cropId with the highest effective GPS among unlocked crops. */
+  /** Returns the cropId with the highest effective GPS among actually-unlocked crops. */
   function bestUnlockedCropId() {
+    const lifetimeGold = Array.from(cropStats.values()).reduce((s, v) => s + v.lifetimeSales, 0);
     let bestId = null, bestGPS = -1;
-    for (const id of unlockedCrops) {
+    for (const [id, ct] of Object.entries(CROPS)) {
+      if (!ct.isUnlocked(cropStats, lifetimeGold)) continue;
       const gps = cropEffectiveGPS(id);
       if (gps > bestGPS) { bestGPS = gps; bestId = id; }
     }
