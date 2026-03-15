@@ -603,22 +603,21 @@ async function main() {
     // Draws gold icon + amount + GPS; returns right edge x
     function computeGoldPerSecond() {
       let gps = 0;
+      // Farming GPS — only during farming hours
       if (schedulePanel.isFarmingTime(calendarAccum)) {
         zoneCrops.forEach(({ instance, tileCount }) => {
           const ct = instance.cropType;
           const cycleTime = (ct.growthPhaseGIDs.length - 1) * ct.growthTimePerPhase;
           if (cycleTime > 0 && autoSellSet.has(ct.id)) gps += (tileCount * ct.yieldGold * gameSpeed) / cycleTime;
         });
-      } else {
-        // Zone-based work activities (artisan + future activities)
-        for (const [actKey, ws] of workState) {
-          if (!schedulePanel.isActivityTime(actKey, calendarAccum)) continue;
-          if (!hasWorkActivity(actKey)) continue;
-          const ctx = buildProductionCtx(ws);
-          ws.zones.filter(z => ws.unlockedSet.has(z.name)).forEach(zone => {
-            gps += ws.act.getGPS(zone, ctx);
-          });
-        }
+      }
+      // Always-active work activities (artisan) — contribute GPS around the clock
+      for (const [, ws] of workState) {
+        if (!ws.act.alwaysActive) continue;
+        const ctx = buildProductionCtx(ws);
+        ws.zones.filter(z => ws.unlockedSet.has(z.name)).forEach(zone => {
+          gps += ws.act.getGPS(zone, ctx);
+        });
       }
       return gps;
     }
@@ -894,8 +893,8 @@ async function main() {
       }
     });
 
-    // Draw artisan product icons above active artisan zones during artisan hours
-    if (schedulePanel && schedulePanel.isArtisanTime(calendarAccum)) {
+    // Draw artisan product icons above unlocked artisan zones (always visible — artisan runs 24/7)
+    if (artisanZones.length > 0) {
       const unlockedArtisanList = artisanZones.filter(z => unlockedArtisanZones.has(z.name));
       if (unlockedArtisanList.length > 0) {
         const iconSize = 14;
@@ -1038,8 +1037,6 @@ async function main() {
       rafAction = ACTIONS.SOCIALIZE;
     } else if (schedulePanel.isFarmingTime(calendarAccum)) {
       rafAction = ACTIONS.FARM;
-    } else if (schedulePanel.isArtisanTime(calendarAccum)) {
-      rafAction = ACTIONS.FARM; // re-use farm animation for artisan work
     }
 
     if (!gamePaused) animator.update(dt, rafAction, rafDir);
@@ -1309,7 +1306,6 @@ async function main() {
       }
 
       const farmingActive = schedulePanel.isFarmingTime(calendarAccum);
-      const artisanActive = schedulePanel.isArtisanTime(calendarAccum);
 
       if (farmingActive) {
         zoneCrops.forEach(({ instance, tileCount }) => {
@@ -1333,8 +1329,9 @@ async function main() {
       }
 
       // Zone-based work activity production (offline sim)
+      // alwaysActive activities run every simulated second regardless of schedule.
       for (const [actKey, ws] of workState) {
-        if (schedulePanel.isActivityTime(actKey, calendarAccum)) {
+        if (ws.act.alwaysActive || schedulePanel.isActivityTime(actKey, calendarAccum)) {
           let acc = (workAcc.get(actKey) || 0) + DT;
           while (acc >= ws.act.productionIntervalSecs) {
             acc -= ws.act.productionIntervalSecs;
@@ -1515,10 +1512,8 @@ async function main() {
     const farmingActive     = schedulePanel.isFarmingTime(calendarAccum);
     const socializingActive = schedulePanel.isSocializingTime(calendarAccum);
     const sleepingActive    = schedulePanel.isSleepingTime(calendarAccum);
-    const artisanActive     = schedulePanel.isArtisanTime(calendarAccum);
-    // Track current activity for the rAF animator
+    // Track current activity for the rAF animator (artisan is now passive background)
     currentActivity = sleepingActive ? 'sleeping'
-      : (artisanActive && hasArtisanWork()) ? 'artisan'
       : socializingActive ? 'socializing'
       : farmingActive ? 'farming' : 'idle';
 
@@ -1527,7 +1522,6 @@ async function main() {
     if (socializingActive) totalSocializingHours += hoursPerTick;
     if (farmingActive)     totalFarmingHours     += hoursPerTick;
     if (sleepingActive)    totalSleepingHours    += hoursPerTick;
-    if (artisanActive)     totalArtisanHours     += hoursPerTick;
 
 
     // Sleeping state transitions
@@ -1584,9 +1578,10 @@ async function main() {
     stats.update(); // Always update stats panel
 
     // Zone-based work activity production (artisan + future activities)
+    // alwaysActive activities run every tick regardless of schedule.
     let workProduced = false;
     for (const [actKey, ws] of workState) {
-      if (schedulePanel.isActivityTime(actKey, calendarAccum)) {
+      if (ws.act.alwaysActive || schedulePanel.isActivityTime(actKey, calendarAccum)) {
         ws.tickTimer += gameSpeed;
         if (ws.tickTimer >= ws.act.productionIntervalSecs) {
           ws.tickTimer -= ws.act.productionIntervalSecs;
@@ -1609,18 +1604,6 @@ async function main() {
         updatePlayerSocialTravel(gameSpeed);
       } else if (farmingActive) {
         updatePlayerZoneTravel(gameSpeed);
-      } else {
-        // Zone-based work activity travel (artisan + any future activities)
-        for (const [actKey, ws] of workState) {
-          if (schedulePanel.isActivityTime(actKey, calendarAccum)) {
-            if (ws.unlockedSet.size > 0 && hasWorkActivity(actKey)) {
-              updateWorkActivityTravel(actKey, gameSpeed);
-            } else {
-              updatePlayerZoneTravel(gameSpeed); // fall back to farm travel
-            }
-            break; // only one activity active at a time
-          }
-        }
       }
     }
     _wasSocializing = socializingActive;

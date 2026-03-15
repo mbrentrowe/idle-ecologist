@@ -4,7 +4,6 @@
 const ACTIVITIES = [
   { key: 'farming',     label: 'Farming',     icon: '🌾', color: '#6dbd5a', description: 'Crops only grow during farming hours.' },
   { key: 'socializing', label: 'Socializing', icon: '💬', color: '#5ab5bd', description: 'Unlocks NPC events. (coming soon)' },
-  { key: 'artisan',    label: 'Artisan',     icon: '🏺', color: '#c47a3a', description: 'Convert crops into high-value products.' },
   { key: 'sleeping',   label: 'Sleeping',    icon: '😴', color: '#9a7fc7', description: 'Rest and recover.' },
 ];
 
@@ -16,7 +15,7 @@ function clamp(val, min, max) {
 }
 
 export function initSchedulePanel({ getSchedule, onScheduleChange } = {}) {
-  const schedule = { farming: 8, socializing: 4, artisan: 4, sleeping: 8 };
+  const schedule = { farming: 10, socializing: 6, sleeping: 8 };
 
   const panel = document.createElement('div');
   Object.assign(panel.style, {
@@ -155,7 +154,7 @@ export function initSchedulePanel({ getSchedule, onScheduleChange } = {}) {
 
   // Hint
   const hint = document.createElement('div');
-  hint.textContent = 'Crops grow during Farming hours. Artisan goods are crafted during Artisan hours.';
+  hint.textContent = 'Crops grow during Farming hours. Artisan goods are crafted passively around the clock whenever crops are available.';
   Object.assign(hint.style, {
     color: '#555', font: '11px sans-serif', marginTop: '4px', textAlign: 'center',
   });
@@ -196,7 +195,8 @@ export function initSchedulePanel({ getSchedule, onScheduleChange } = {}) {
   function isFarmingTime(calendarAccum)     { return isActivityTime('farming',     calendarAccum); }
   function isSocializingTime(calendarAccum) { return isActivityTime('socializing', calendarAccum); }
   function isSleepingTime(calendarAccum)    { return isActivityTime('sleeping',    calendarAccum); }
-  function isArtisanTime(calendarAccum)     { return isActivityTime('artisan',     calendarAccum); }
+  // Artisan is now always-active (not schedule-gated); stub kept for compat.
+  function isArtisanTime(calendarAccum)     { return false; } // eslint-disable-line no-unused-vars
 
   return { panel, show, hide, getScheduleState, applyScheduleState,
            isActivityTime, isFarmingTime, isSocializingTime, isSleepingTime, isArtisanTime };

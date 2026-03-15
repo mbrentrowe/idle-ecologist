@@ -32,14 +32,24 @@ export const WORK_ACTIVITIES = [
     /** Colour accent used in the offline-progress modal section header. */
     color: '#c47a3a',
 
+    /**
+     * When true the activity runs continuously (not gated by the schedule).
+     * Production ticks, GPS, and offline simulation all honour this flag.
+     * The player does NOT walk to these zones on a separate schedule —
+     * they are background facilities that produce passively.
+     */
+    alwaysActive: true,
+
     /** Fallback cost when no "cost" property is set in Tiled. */
     defaultZoneCost: 25000,
 
-    /** How often (real seconds at 1× speed) the player moves to the next zone. */
-    travelIntervalSecs: 10,
-
     /** How often (real seconds at 1× speed) each zone runs one production batch. */
     productionIntervalSecs: 5,
+
+    /**
+     * travelIntervalSecs is intentionally omitted — alwaysActive activities
+     * do not move the player.  The player stays on the farming/social schedule.
+     */
 
     /**
      * Convert raw Tiled objects into zone descriptor objects.
