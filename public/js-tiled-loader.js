@@ -1084,6 +1084,7 @@ async function main() {
       artisanStats: Object.fromEntries(Array.from(artisanStats.entries()).map(([k, s]) => [k, { ...s }])),
       artisanZoneProductMap: Object.fromEntries(artisanZoneProductMap),
       autoSellSet: Array.from(autoSellSet),
+      savedAt: Date.now(),
       unlockedZones: Array.from(unlockedZones),
       unlockedArtisanZones: Array.from(unlockedArtisanZones),
       unlockedCrops: Array.from(unlockedCrops),
@@ -1205,12 +1206,186 @@ async function main() {
   });
   document.body.appendChild(schedulePanel.panel);
 
+  // ── Offline simulation ─────────────────────────────────────────────────────────────────────
+  function simulateOffline(offlineRealSecs) {
+    const MAX_SECS = 2 * 3600; // cap at 2 real hours
+    const simSecs  = Math.min(Math.floor(offlineRealSecs), MAX_SECS);
+    if (simSecs <= 0) return null;
+
+    // Each real second = 4 game-ticks of gameSpeed units
+    const DT = 4 * gameSpeed;
+    const goldBefore = gold.amount;
+    const producedArtisan = new Map(); // artisanKey → count
+    const harvestedCrops  = new Map(); // cropId → count
+    let artisanAcc = artisanTickTimer;
+
+    for (let t = 0; t < simSecs; t++) {
+      calendarAccum += DT;
+      while (calendarAccum >= DAY_REAL_SECS) {
+        calendarAccum -= DAY_REAL_SECS;
+        calendar.nextDay();
+      }
+
+      const farmingActive = schedulePanel.isFarmingTime(calendarAccum);
+      const artisanActive = schedulePanel.isArtisanTime(calendarAccum);
+
+      if (farmingActive) {
+        zoneCrops.forEach(({ instance, tileCount }) => {
+          instance.tick(DT);
+          if (instance.isFullyGrown) {
+            const id = instance.cropType.id;
+            const s  = cropStats.get(id);
+            s.grown += tileCount;
+            harvestedCrops.set(id, (harvestedCrops.get(id) || 0) + tileCount);
+            if (autoSellSet.has(id)) {
+              const earned = instance.cropType.yieldGold * tileCount;
+              gold.add(earned);
+              s.sold          += tileCount;
+              s.lifetimeSales += earned;
+            } else {
+              cropInventory.set(id, (cropInventory.get(id) || 0) + tileCount);
+            }
+            instance.harvest();
+          }
+        });
+      }
+
+      if (artisanActive) {
+        artisanAcc += DT;
+        while (artisanAcc >= ARTISAN_INTERVAL_SECS) {
+          artisanAcc -= ARTISAN_INTERVAL_SECS;
+          getUnlockedArtisanZoneList().forEach(zone => {
+            const cropId   = artisanZoneProductMap.get(zone.name);
+            if (!cropId) return;
+            const cropType = CROPS[cropId];
+            if (!cropType?.artisanProduct) return;
+            const ap   = cropType.artisanProduct;
+            if ((cropStats.get(cropId)?.sold ?? 0) < ap.unlockCropSold) return;
+            const have = cropInventory.get(cropId) || 0;
+            if (have < ap.cropInputCount) return;
+            cropInventory.set(cropId, have - ap.cropInputCount);
+            const artisanKey = `${cropId}_artisan`;
+            const astat = artisanStats.get(artisanKey);
+            if (astat) astat.crafted += 1;
+            producedArtisan.set(artisanKey, (producedArtisan.get(artisanKey) || 0) + 1);
+            if (autoSellSet.has(artisanKey)) {
+              gold.add(ap.goldValue);
+              if (astat) { astat.sold += 1; astat.lifetimeSales += ap.goldValue; }
+            } else {
+              artisanInventory.set(artisanKey, (artisanInventory.get(artisanKey) || 0) + 1);
+            }
+          });
+        }
+      } else {
+        artisanAcc = 0;
+      }
+    }
+
+    artisanTickTimer = artisanAcc;
+    return { goldEarned: gold.amount - goldBefore, harvestedCrops, producedArtisan, secondsSimulated: simSecs, cappedAt: offlineRealSecs > MAX_SECS };
+  }
+
+  function showOfflineModal(result, offlineRealSecs) {
+    const { goldEarned, harvestedCrops, producedArtisan, secondsSimulated, cappedAt } = result;
+    const modal = document.createElement('div');
+    Object.assign(modal.style, {
+      position:     'fixed', top: '0', left: '0', width: '100vw', height: '100vh',
+      background:   'rgba(0,0,0,0.72)',
+      display:      'flex', alignItems: 'center', justifyContent: 'center',
+      zIndex:       '999', fontFamily: 'sans-serif',
+    });
+
+    const box = document.createElement('div');
+    Object.assign(box.style, {
+      background:   '#111', border: '2px solid #ffd700', borderRadius: '10px',
+      padding:      '20px 26px', maxWidth: '380px', width: '90vw', color: '#e8e8e8',
+    });
+
+    const title = document.createElement('div');
+    title.textContent = 'Welcome back!';
+    Object.assign(title.style, { font: 'bold 15px sans-serif', color: '#ffd700', marginBottom: '4px' });
+    box.appendChild(title);
+
+    const fmt = s => s >= 3600 ? `${Math.floor(s/3600)}h ${Math.floor((s%3600)/60)}m`
+                   : s >= 60   ? `${Math.floor(s/60)}m ${s%60}s`
+                   : `${s}s`;
+    const sub = document.createElement('div');
+    sub.textContent = cappedAt
+      ? `Simulated ${fmt(secondsSimulated)} of progress (capped at 2 hours).`
+      : `You were away for ${fmt(Math.floor(offlineRealSecs))}.`;
+    Object.assign(sub.style, { font: '11px sans-serif', color: '#888', marginBottom: '14px' });
+    box.appendChild(sub);
+
+    if (goldEarned > 0 || harvestedCrops.size > 0 || producedArtisan.size > 0) {
+      const earned = document.createElement('div');
+      Object.assign(earned.style, { font: 'bold 13px sans-serif', color: '#ffd700', marginBottom: '8px' });
+      earned.textContent = `🪙 +${shortNumber(goldEarned)} gold earned`;
+      box.appendChild(earned);
+
+      if (harvestedCrops.size > 0) {
+        const hdr = document.createElement('div');
+        hdr.textContent = 'Crops harvested:';
+        Object.assign(hdr.style, { font: 'bold 11px sans-serif', color: '#6dbd5a', marginBottom: '4px' });
+        box.appendChild(hdr);
+        harvestedCrops.forEach((count, id) => {
+          const ct = CROPS[id];
+          if (!ct) return;
+          const row = document.createElement('div');
+          row.textContent = `  ${ct.name}: ${shortNumber(count)}`;
+          Object.assign(row.style, { font: '12px sans-serif', color: '#ccc', marginBottom: '2px' });
+          box.appendChild(row);
+        });
+      }
+
+      if (producedArtisan.size > 0) {
+        const hdr = document.createElement('div');
+        hdr.textContent = 'Artisan goods produced:';
+        Object.assign(hdr.style, { font: 'bold 11px sans-serif', color: '#c47a3a', marginTop: '8px', marginBottom: '4px' });
+        box.appendChild(hdr);
+        producedArtisan.forEach((count, artisanKey) => {
+          const cropId = artisanKey.replace('_artisan', '');
+          const ap = CROPS[cropId]?.artisanProduct;
+          if (!ap) return;
+          const row = document.createElement('div');
+          row.textContent = `  ${ap.name}: ${shortNumber(count)}`;
+          Object.assign(row.style, { font: '12px sans-serif', color: '#ccc', marginBottom: '2px' });
+          box.appendChild(row);
+        });
+      }
+    } else {
+      const none = document.createElement('div');
+      none.textContent = 'Nothing to collect — crops needed to grow or artisan zones unassigned.';
+      Object.assign(none.style, { font: '12px sans-serif', color: '#888' });
+      box.appendChild(none);
+    }
+
+    const btn = document.createElement('button');
+    btn.textContent = 'Continue';
+    Object.assign(btn.style, {
+      marginTop: '16px', padding: '8px 28px',
+      background: '#ffd700', color: '#111', border: 'none',
+      borderRadius: '5px', font: 'bold 13px sans-serif', cursor: 'pointer',
+    });
+    btn.addEventListener('click', () => document.body.removeChild(modal));
+    box.appendChild(btn);
+    modal.appendChild(box);
+    modal.addEventListener('click', e => { if (e.target === modal) document.body.removeChild(modal); });
+    document.body.appendChild(modal);
+  }
+
   // Load game state on startup
   const loadedState = loadGame();
   if (loadedState) {
     console.log('[Startup] Applying loaded save...');
     applyGameState(loadedState);
-    console.log('[Startup] After apply � gold:', gold.amount, '| unlockedZones:', Array.from(unlockedZones));
+    console.log('[Startup] After apply — gold:', gold.amount, '| unlockedZones:', Array.from(unlockedZones));
+    if (loadedState.savedAt) {
+      const offlineRealSecs = (Date.now() - loadedState.savedAt) / 1000;
+      if (offlineRealSecs > 5) {
+        const result = simulateOffline(offlineRealSecs);
+        if (result) showOfflineModal(result, offlineRealSecs);
+      }
+    }
   } else {
     console.log('[Startup] Starting fresh (no save data).');
   }
