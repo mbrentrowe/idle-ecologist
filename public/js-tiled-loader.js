@@ -48,6 +48,8 @@ async function main() {
     let socialTravelTimer = 0;
     let _wasSocializing = false;
     let _lastSocialPathIndex = -1; // track last zone we pathed to (avoids re-pathing every tick)
+    let artisanZoneTravelIndex = 0;
+    let artisanZoneTravelTimer = 0;
     let nav = null; // pathfinding nav grid — set after map loads
     function getUnlockedZoneList() {
       return cropZones.filter(z => unlockedZones.has(z.name));
@@ -96,6 +98,22 @@ async function main() {
       }
     }
 
+    function getUnlockedArtisanZoneList() {
+      return artisanZones.filter(z => unlockedArtisanZones.has(z.name));
+    }
+
+    function updatePlayerArtisanTravel(dt) {
+      const list = getUnlockedArtisanZoneList();
+      if (list.length === 0) return;
+      artisanZoneTravelTimer += dt;
+      if (artisanZoneTravelTimer >= 10) {
+        artisanZoneTravelTimer = 0;
+        artisanZoneTravelIndex = (artisanZoneTravelIndex + 1) % list.length;
+        const pt = list[artisanZoneTravelIndex];
+        setPlayerPath(pt.x, pt.y);
+      }
+    }
+
   const calendar = new Calendar();
 
   // Gold system
@@ -138,6 +156,18 @@ async function main() {
       obj => (obj.type || obj.class || '').toLowerCase() === 'socialzone'
     );
     socialZones.sort((a, b) => (a.name || '').localeCompare(b.name || '', undefined, { numeric: true }));
+  }
+
+  // Artisan zone points (from the ArtisanZones object layer)
+  let artisanZones = [];
+  const artisanZonesLayer = map.layers && map.layers.find(
+    l => l.type === 'objectgroup' && l.name && l.name.toLowerCase() === 'artisanzones'
+  );
+  if (artisanZonesLayer && Array.isArray(artisanZonesLayer.objects)) {
+    artisanZones = artisanZonesLayer.objects.map((obj, i) => ({
+      ...obj,
+      name: `ArtisanZone${String(i + 1).padStart(2, '0')}`,
+    }));
   }
 
   // Walkable polygon nav grid (WalkableZone object layer)
@@ -184,6 +214,15 @@ async function main() {
       farmZoneRank++;
     }
   });
+
+  // Artisan zone costs and unlock set
+  const artisanZoneCostMap = new Map();
+  artisanZones.forEach(zone => {
+    const rawCost = getTiledProp(zone, 'cost');
+    const cost = typeof rawCost === 'number' ? rawCost : (parseInt(rawCost, 10) || 25000);
+    artisanZoneCostMap.set(zone.name, cost);
+  });
+  const unlockedArtisanZones = new Set(); // none unlocked at game start
 
   // Player state (start in FarmZone01 if available)
   const farmZone01 = cropZones.find(z => z.name === 'FarmZone01');
@@ -901,6 +940,7 @@ async function main() {
 
   const realEstate = initRealEstatePanel({
     cropZones, unlockedZones, gold, zoneCrops, CROPS, CropInstance,
+    artisanZones, unlockedArtisanZones, artisanZoneCostMap,
     getIncomePerSecond, zoneCostMap,
     onPurchase: () => { draw(); drawMenuBar(); manageFarm.update(); },
   });
@@ -965,6 +1005,7 @@ async function main() {
       artisanInventory: Object.fromEntries(artisanInventory),
       autoSellSet: Array.from(autoSellSet),
       unlockedZones: Array.from(unlockedZones),
+      unlockedArtisanZones: Array.from(unlockedArtisanZones),
       unlockedCrops: Array.from(unlockedCrops),
       zoneCrops: Array.from(zoneCrops.entries()).map(([zone, { instance, tileCount }]) => ({
         zone,
@@ -1012,6 +1053,10 @@ async function main() {
     if (state.unlockedZones) {
       unlockedZones.clear();
       state.unlockedZones.forEach(z => unlockedZones.add(z));
+    }
+    if (state.unlockedArtisanZones) {
+      unlockedArtisanZones.clear();
+      state.unlockedArtisanZones.forEach(z => unlockedArtisanZones.add(z));
     }
     if (state.unlockedCrops) {
       unlockedCrops.clear();
@@ -1220,7 +1265,10 @@ async function main() {
           socialTravelTimer = 0;
         }
         updatePlayerSocialTravel(gameSpeed);
-      } else if (farmingActive || artisanActive) {
+      } else if (artisanActive) {
+        if (getUnlockedArtisanZoneList().length > 0) updatePlayerArtisanTravel(gameSpeed);
+        else updatePlayerZoneTravel(gameSpeed); // fallback to farm zones until artisan zones bought
+      } else if (farmingActive) {
         updatePlayerZoneTravel(gameSpeed);
       }
     }

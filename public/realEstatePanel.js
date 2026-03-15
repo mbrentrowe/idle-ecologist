@@ -15,7 +15,8 @@
  * @returns {{ show: Function, hide: Function, update: Function }}
  */
 export function initRealEstatePanel({
-  cropZones, unlockedZones, gold, zoneCrops, CROPS, CropInstance, getIncomePerSecond, zoneCostMap, onPurchase
+  cropZones, unlockedZones, gold, zoneCrops, CROPS, CropInstance, getIncomePerSecond, zoneCostMap,
+  artisanZones, unlockedArtisanZones, artisanZoneCostMap, onPurchase
 }) {
   const TILESIZE = 16;
 
@@ -442,6 +443,115 @@ export function initRealEstatePanel({
       rowRefs.push(ref);
       renderRow(ref);
     });
+
+    // ── Artisan Workshops section ───────────────────────────────────────────
+    if (artisanZones && artisanZones.length > 0) {
+      const artisanSecHeader = document.createElement('div');
+      Object.assign(artisanSecHeader.style, {
+        padding:       '6px 14px',
+        font:          'bold 12px sans-serif',
+        color:         '#c47a3a',
+        borderBottom:  '1px solid rgba(196,122,58,0.4)',
+        borderTop:     '1px solid rgba(196,122,58,0.3)',
+        letterSpacing: '1.5px',
+        marginTop:     '4px',
+      });
+      artisanSecHeader.textContent = 'ARTISAN WORKSHOPS';
+      panel.appendChild(artisanSecHeader);
+
+      artisanZones.forEach((zone, i) => {
+        const cost = artisanZoneCostMap ? (artisanZoneCostMap.get(zone.name) ?? 25000) : 25000;
+        const owned = unlockedArtisanZones && unlockedArtisanZones.has(zone.name);
+        if (owned) return; // hide already-bought workshops
+
+        const row = document.createElement('div');
+        Object.assign(row.style, {
+          display:      'flex',
+          alignItems:   'center',
+          padding:      '7px 14px',
+          gap:          '12px',
+          borderBottom: '1px solid rgba(255,255,255,0.06)',
+        });
+
+        const swatch = document.createElement('div');
+        Object.assign(swatch.style, {
+          width: '18px', height: '18px', borderRadius: '3px',
+          background: '#7a4e22', border: '1px solid #c47a3a', flexShrink: '0',
+        });
+        row.appendChild(swatch);
+
+        const info = document.createElement('div');
+        Object.assign(info.style, { display: 'flex', flexDirection: 'column', minWidth: '110px', flexShrink: '0' });
+        const nameEl = document.createElement('span');
+        nameEl.textContent = `Workbench ${i + 1}`;
+        Object.assign(nameEl.style, { color: '#e8c89a', font: 'bold 13px sans-serif' });
+        const subEl = document.createElement('span');
+        subEl.textContent = 'Artisan station';
+        Object.assign(subEl.style, { color: '#888', font: '11px sans-serif' });
+        info.appendChild(nameEl);
+        info.appendChild(subEl);
+        row.appendChild(info);
+
+        const spacer = document.createElement('div');
+        spacer.style.flex = '1';
+        row.appendChild(spacer);
+
+        const costEl = document.createElement('span');
+        costEl.textContent = `🪙 ${shortNumber(cost)}`;
+        Object.assign(costEl.style, { color: '#ffd700', font: 'bold 13px sans-serif', flexShrink: '0' });
+        row.appendChild(costEl);
+
+        const actionEl = document.createElement('div');
+        Object.assign(actionEl.style, {
+          display: 'flex', alignItems: 'center', gap: '6px',
+          flexShrink: '0', minWidth: '140px', justifyContent: 'flex-end',
+        });
+
+        const have = gold.amount;
+        const canAfford = have >= cost;
+        if (!canAfford) {
+          const shortfall = cost - have;
+          const ips = getIncomePerSecond();
+          const secsNeeded = ips > 0 ? shortfall / ips : Infinity;
+          const needEl = document.createElement('div');
+          Object.assign(needEl.style, { display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '1px' });
+          const needText = document.createElement('span');
+          needText.textContent = `Need ${shortNumber(shortfall)} more`;
+          Object.assign(needText.style, { color: '#e05555', font: '11px sans-serif' });
+          const timeText = document.createElement('span');
+          timeText.textContent = ips > 0 ? `~${formatTime(secsNeeded)}` : 'No income yet';
+          Object.assign(timeText.style, { color: '#aaa', font: '10px sans-serif' });
+          needEl.appendChild(needText);
+          needEl.appendChild(timeText);
+          actionEl.appendChild(needEl);
+        }
+
+        const btn = document.createElement('button');
+        btn.textContent = 'Buy';
+        Object.assign(btn.style, {
+          background:   canAfford ? '#6b4d00' : '#2a2a2a',
+          color:        canAfford ? '#ffd700' : '#555',
+          border:       `1px solid ${canAfford ? '#ffd700' : '#444'}`,
+          borderRadius: '4px', padding: '4px 14px',
+          font:         'bold 12px sans-serif',
+          cursor:       canAfford ? 'pointer' : 'not-allowed',
+          opacity:      canAfford ? '1' : '0.6',
+        });
+        if (canAfford) {
+          btn.addEventListener('click', () => {
+            if (!gold.spend(cost)) return;
+            unlockedArtisanZones.add(zone.name);
+            update();
+            onPurchase();
+          });
+          btn.addEventListener('mouseenter', () => { btn.style.background = '#8a6500'; });
+          btn.addEventListener('mouseleave', () => { btn.style.background = '#6b4d00'; });
+        }
+        actionEl.appendChild(btn);
+        row.appendChild(actionEl);
+        panel.appendChild(row);
+      });
+    }
   }
 
   return {
