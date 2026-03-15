@@ -25,6 +25,7 @@ const ctx = canvas.getContext('2d');
 let totalFarmingHours     = 0;
 let totalSocializingHours = 0;
 let totalSleepingHours    = 0;
+let totalArtisanHours     = 0;
 
 const DAY_REAL_SECS = 240; // 4 real minutes = 1 in-game day
 const SOCIAL_REAL_SECS_PER_HOUR = DAY_REAL_SECS / 24;
@@ -201,8 +202,9 @@ async function main() {
   }
 
   // Crop inventory and auto-sell state
-  const cropInventory  = new Map(); // cropId → count in hand
-  const autoSellSet    = new Set(Object.keys(CROPS)); // cropIds with auto-sell enabled (on by default)
+  const cropInventory   = new Map(); // cropId → count in hand
+  const artisanInventory = new Map(); // artisanKey → count  (key = cropId + '_artisan')
+  const autoSellSet     = new Set(Object.keys(CROPS)); // cropIds with auto-sell enabled (on by default)
   const unlockedCrops  = new Set(Object.keys(CROPS)); // cropIds the player has access to
   // Lifetime stats: cropId → { grown, sold, lifetimeSales }
   const cropStats = new Map();
@@ -299,6 +301,10 @@ async function main() {
   const SLEEP_TILE_ROW = 7;
   const SLEEP_WORLD_X = SLEEP_TILE_COL * 16 + 8;
   const SLEEP_WORLD_Y = SLEEP_TILE_ROW * 16 + 8;
+
+  // Artisan state
+  let artisanTickTimer = 0;
+  const ARTISAN_INTERVAL_SECS = 5; // produce 1 batch of artisan goods every 5 real-speed seconds
 
   function drawBottomBar() {
     const w = bottomBar.width;
@@ -853,6 +859,8 @@ async function main() {
       rafAction = ACTIONS.SOCIALIZE;
     } else if (schedulePanel.isFarmingTime(calendarAccum)) {
       rafAction = ACTIONS.FARM;
+    } else if (schedulePanel.isArtisanTime(calendarAccum)) {
+      rafAction = ACTIONS.FARM; // re-use farm animation for artisan work
     }
 
     if (!gamePaused) animator.update(dt, rafAction, rafDir);
@@ -865,7 +873,7 @@ async function main() {
 
   // Market panel
   const marketTabIndex = bottomTabs.findIndex(t => t.full === 'Market');
-  const market = initMarketPanel({ tilesetImage, CROPS, cropInventory, autoSellSet, gold, cropStats });
+  const market = initMarketPanel({ tilesetImage, CROPS, cropInventory, artisanInventory, autoSellSet, gold, cropStats });
 
   // Stats panel
   const statsTabIndex = bottomTabs.findIndex(t => t.full === 'Stats');
@@ -946,6 +954,7 @@ async function main() {
       totalSocializingHours,
       totalFarmingHours,
       totalSleepingHours,
+      totalArtisanHours,
       calendar: {
         day: calendar.day,
         month: calendar.month,
@@ -953,6 +962,7 @@ async function main() {
         elapsedMsInDay: (Date.now() - calendar._startTime) % (4 * 60 * 1000),
       },
       cropInventory: Object.fromEntries(cropInventory),
+      artisanInventory: Object.fromEntries(artisanInventory),
       autoSellSet: Array.from(autoSellSet),
       unlockedZones: Array.from(unlockedZones),
       unlockedCrops: Array.from(unlockedCrops),
@@ -977,6 +987,7 @@ async function main() {
     if (typeof state.totalSocializingHours === 'number') totalSocializingHours = state.totalSocializingHours;
     if (typeof state.totalFarmingHours    === 'number') totalFarmingHours    = state.totalFarmingHours;
     if (typeof state.totalSleepingHours   === 'number') totalSleepingHours   = state.totalSleepingHours;
+    if (typeof state.totalArtisanHours    === 'number') totalArtisanHours    = state.totalArtisanHours;
     if (state.calendar) {
       calendar.day = state.calendar.day ?? calendar.day;
       calendar.month = state.calendar.month ?? calendar.month;
@@ -989,6 +1000,10 @@ async function main() {
     if (state.cropInventory) {
       cropInventory.clear();
       Object.entries(state.cropInventory).forEach(([id, count]) => cropInventory.set(id, count));
+    }
+    if (state.artisanInventory) {
+      artisanInventory.clear();
+      Object.entries(state.artisanInventory).forEach(([key, count]) => artisanInventory.set(key, count));
     }
     if (state.autoSellSet) {
       autoSellSet.clear();
@@ -1106,15 +1121,16 @@ async function main() {
     const farmingActive     = schedulePanel.isFarmingTime(calendarAccum);
     const socializingActive = schedulePanel.isSocializingTime(calendarAccum);
     const sleepingActive    = schedulePanel.isSleepingTime(calendarAccum);
+    const artisanActive     = schedulePanel.isArtisanTime(calendarAccum);
     // Track current activity for the rAF animator
-    // Socializing takes visual priority over farming (matches movement logic on line 1036)
-    currentActivity = sleepingActive ? 'sleeping' : socializingActive ? 'socializing' : farmingActive ? 'farming' : 'idle';
+    currentActivity = sleepingActive ? 'sleeping' : artisanActive ? 'artisan' : socializingActive ? 'socializing' : farmingActive ? 'farming' : 'idle';
 
     // Accumulate time-spent hours for each activity
     const hoursPerTick = gameSpeed * 24 / DAY_REAL_SECS;
     if (socializingActive) totalSocializingHours += hoursPerTick;
     if (farmingActive)     totalFarmingHours     += hoursPerTick;
     if (sleepingActive)    totalSleepingHours    += hoursPerTick;
+    if (artisanActive)     totalArtisanHours     += hoursPerTick;
 
 
     // Sleeping state transitions
@@ -1169,6 +1185,34 @@ async function main() {
       }
     });
     stats.update(); // Always update stats panel
+
+    // Artisan production: during artisan hours, consume crops and produce artisan goods
+    if (artisanActive) {
+      artisanTickTimer += gameSpeed;
+      if (artisanTickTimer >= ARTISAN_INTERVAL_SECS) {
+        artisanTickTimer -= ARTISAN_INTERVAL_SECS;
+        let artisanProduced = false;
+        Object.values(CROPS).forEach(cropType => {
+          const ap = cropType.artisanProduct;
+          if (!ap) return;
+          const sold = cropStats.get(cropType.id)?.sold ?? 0;
+          if (sold < ap.unlockCropSold) return;
+          const have = cropInventory.get(cropType.id) || 0;
+          if (have < ap.cropInputCount) return;
+          cropInventory.set(cropType.id, have - ap.cropInputCount);
+          const artisanKey = `${cropType.id}_artisan`;
+          if (autoSellSet.has(artisanKey)) {
+            gold.add(ap.goldValue);
+          } else {
+            artisanInventory.set(artisanKey, (artisanInventory.get(artisanKey) || 0) + 1);
+          }
+          artisanProduced = true;
+        });
+        if (artisanProduced && activeTab === marketTabIndex) market.update();
+      }
+    } else {
+      artisanTickTimer = 0;
+    }
     if (!isSleeping && sleepPendingTicks === 0) {
       if (socializingActive) {
         if (!_wasSocializing) {
@@ -1176,7 +1220,7 @@ async function main() {
           socialTravelTimer = 0;
         }
         updatePlayerSocialTravel(gameSpeed);
-      } else if (farmingActive) {
+      } else if (farmingActive || artisanActive) {
         updatePlayerZoneTravel(gameSpeed);
       }
     }
@@ -1191,3 +1235,4 @@ main();
 window.getTotalSocializingHours = () => typeof totalSocializingHours !== 'undefined' ? totalSocializingHours : 0;
 window.getTotalFarmingHours     = () => typeof totalFarmingHours     !== 'undefined' ? totalFarmingHours     : 0;
 window.getTotalSleepingHours    = () => typeof totalSleepingHours    !== 'undefined' ? totalSleepingHours    : 0;
+window.getTotalArtisanHours     = () => typeof totalArtisanHours     !== 'undefined' ? totalArtisanHours     : 0;

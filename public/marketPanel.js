@@ -16,11 +16,12 @@ function gidCoords(gid) {
  * @param {HTMLImageElement}        opts.tilesetImage
  * @param {object}                  opts.CROPS          - CROPS dict from crops.js
  * @param {Map<string,number>}      opts.cropInventory  - cropId → count (shared reference)
- * @param {Set<string>}             opts.autoSellSet    - cropIds with auto-sell on (shared reference)
+ * @param {Map<string,number>}      opts.artisanInventory - artisanKey → count (shared reference)
+ * @param {Set<string>}             opts.autoSellSet    - cropIds / artisanKeys with auto-sell on (shared reference)
  * @param {Gold}                    opts.gold           - Gold instance
  * @returns {{ show: Function, hide: Function, update: Function }}
  */
-export function initMarketPanel({ tilesetImage, CROPS, cropInventory, autoSellSet, gold, cropStats }) {
+export function initMarketPanel({ tilesetImage, CROPS, cropInventory, artisanInventory, autoSellSet, gold, cropStats }) {
 
   // ── Panel container ──────────────────────────────────────────────────────
   const panel = document.createElement('div');
@@ -185,6 +186,105 @@ export function initMarketPanel({ tilesetImage, CROPS, cropInventory, autoSellSe
     rowRefs[cropType.id] = { countEl, sellBtns, autoSellBtn };
   });
 
+  // ── Artisan Goods section ───────────────────────────────────────────
+  const artisanHeader = document.createElement('div');
+  Object.assign(artisanHeader.style, {
+    padding:        '6px 14px',
+    display:        'flex',
+    alignItems:     'center',
+    gap:            '10px',
+    borderBottom:   '1px solid rgba(196,122,58,0.4)',
+    borderTop:      '1px solid rgba(196,122,58,0.3)',
+    marginTop:      '4px',
+  });
+  const artisanTitle = document.createElement('span');
+  Object.assign(artisanTitle.style, {
+    font:          'bold 12px sans-serif',
+    color:         '#c47a3a',
+    letterSpacing: '1.5px',
+  });
+  artisanTitle.textContent = 'ARTISAN GOODS';
+  const artisanSubtitle = document.createElement('span');
+  Object.assign(artisanSubtitle.style, { font: '11px sans-serif', color: '#666' });
+  artisanSubtitle.textContent = 'Crafted during Artisan hours (sell 10,000 of a crop to unlock)';
+  artisanHeader.appendChild(artisanTitle);
+  artisanHeader.appendChild(artisanSubtitle);
+  panel.appendChild(artisanHeader);
+
+  const artisanRowRefs = {}; // cropId → { countEl, sellBtns[] }
+
+  Object.values(CROPS).forEach(cropType => {
+    const ap = cropType.artisanProduct;
+    if (!ap) return;
+    const artisanKey = `${cropType.id}_artisan`;
+
+    const row = document.createElement('div');
+    Object.assign(row.style, {
+      display:      'flex',
+      alignItems:   'center',
+      padding:      '6px 14px',
+      gap:          '10px',
+      borderBottom: '1px solid rgba(255,255,255,0.06)',
+      opacity:      '0.4', // dimmed until unlocked
+    });
+
+    // Icon (same GID as crop for now)
+    const iconCanvas = document.createElement('canvas');
+    iconCanvas.width = 24; iconCanvas.height = 24;
+    Object.assign(iconCanvas.style, { width: '24px', height: '24px', imageRendering: 'pixelated', flexShrink: '0' });
+    const ictx = iconCanvas.getContext('2d');
+    ictx.imageSmoothingEnabled = false;
+    const { sx, sy } = gidCoords(ap.iconGID);
+    ictx.drawImage(tilesetImage, sx, sy, TILESIZE, TILESIZE, 0, 0, 24, 24);
+    row.appendChild(iconCanvas);
+
+    // Name
+    const nameEl = document.createElement('span');
+    nameEl.textContent = ap.name;
+    Object.assign(nameEl.style, { color: '#e8c89a', font: 'bold 13px sans-serif', minWidth: '140px', flexShrink: '0' });
+    row.appendChild(nameEl);
+
+    // Inventory count
+    const countEl = document.createElement('span');
+    countEl.textContent = 'x 0';
+    Object.assign(countEl.style, { color: '#aaa', font: '12px sans-serif', minWidth: '42px', flexShrink: '0' });
+    row.appendChild(countEl);
+
+    // Sell buttons
+    const sellGroup = document.createElement('div');
+    Object.assign(sellGroup.style, { display: 'flex', gap: '4px', flex: '1', flexWrap: 'wrap' });
+    const sellBtns = [];
+    [1, 5, 25, 'All'].forEach(amount => {
+      const btn = document.createElement('button');
+      btn.textContent = `Sell ${amount}`;
+      applyArtisanBtnStyle(btn);
+      btn.addEventListener('click', () => {
+        const have = artisanInventory ? (artisanInventory.get(artisanKey) || 0) : 0;
+        const qty  = amount === 'All' ? have : Math.min(amount, have);
+        if (qty <= 0) return;
+        artisanInventory.set(artisanKey, have - qty);
+        gold.add(qty * ap.goldValue);
+        refreshArtisanRow(cropType.id);
+      });
+      sellGroup.appendChild(btn);
+      sellBtns.push(btn);
+    });
+    row.appendChild(sellGroup);
+
+    // Auto-sell toggle
+    const autoSellBtn = document.createElement('button');
+    applyAutoSellStyle(autoSellBtn, autoSellSet.has(artisanKey));
+    autoSellBtn.addEventListener('click', () => {
+      if (autoSellSet.has(artisanKey)) autoSellSet.delete(artisanKey);
+      else autoSellSet.add(artisanKey);
+      applyAutoSellStyle(autoSellBtn, autoSellSet.has(artisanKey));
+    });
+    row.appendChild(autoSellBtn);
+
+    panel.appendChild(row);
+    artisanRowRefs[cropType.id] = { countEl, sellBtns, autoSellBtn, row };
+  });
+
   document.body.appendChild(panel);
 
   // ── Helpers ───────────────────────────────────────────────────────────────
@@ -201,6 +301,21 @@ export function initMarketPanel({ tilesetImage, CROPS, cropInventory, autoSellSe
     });
     btn.addEventListener('mouseenter', () => { btn.style.background = '#3d7a25'; });
     btn.addEventListener('mouseleave', () => { btn.style.background = '#2d5a1b'; });
+  }
+
+  function applyArtisanBtnStyle(btn) {
+    Object.assign(btn.style, {
+      background:   '#5a3a1b',
+      color:        '#fff',
+      border:       '1px solid #c47a3a',
+      borderRadius: '4px',
+      padding:      '3px 8px',
+      font:         'bold 11px sans-serif',
+      cursor:       'pointer',
+      flexShrink:   '0',
+    });
+    btn.addEventListener('mouseenter', () => { btn.style.background = '#7a4e22'; });
+    btn.addEventListener('mouseleave', () => { btn.style.background = '#5a3a1b'; });
   }
 
   function applyAutoSellStyle(btn, on) {
@@ -225,10 +340,28 @@ export function initMarketPanel({ tilesetImage, CROPS, cropInventory, autoSellSe
     refs.sellBtns.forEach(b => { b.style.opacity = count > 0 ? '1' : '0.4'; });
   }
 
+  function refreshArtisanRow(cropId) {
+    const refs = artisanRowRefs[cropId];
+    if (!refs) return;
+    const cropType = CROPS[cropId];
+    const ap = cropType && cropType.artisanProduct;
+    if (!ap) return;
+    const artisanKey = `${cropId}_artisan`;
+    const unlocked = (cropStats && cropStats.get(cropId) && cropStats.get(cropId).sold >= ap.unlockCropSold);
+    refs.row.style.opacity = unlocked ? '1' : '0.4';
+    const count = artisanInventory ? (artisanInventory.get(artisanKey) || 0) : 0;
+    refs.countEl.textContent = `x ${count}`;
+    refs.sellBtns.forEach(b => { b.style.opacity = (unlocked && count > 0) ? '1' : '0.4'; });
+  }
+
   // ── Public API ────────────────────────────────────────────────────────────
   return {
     show()   { panel.style.display = 'block'; this.update(); },
     hide()   { panel.style.display = 'none'; },
-    update() { Object.keys(rowRefs).forEach(refreshRow); updateSellAllBtn(); },
+    update() {
+      Object.keys(rowRefs).forEach(refreshRow);
+      Object.keys(artisanRowRefs).forEach(refreshArtisanRow);
+      updateSellAllBtn();
+    },
   };
 }

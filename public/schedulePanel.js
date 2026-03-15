@@ -4,7 +4,8 @@
 const ACTIVITIES = [
   { key: 'farming',     label: 'Farming',     icon: '🌾', color: '#6dbd5a', description: 'Crops only grow during farming hours.' },
   { key: 'socializing', label: 'Socializing', icon: '💬', color: '#5ab5bd', description: 'Unlocks NPC events. (coming soon)' },
-  { key: 'sleeping',    label: 'Sleeping',    icon: '😴', color: '#9a7fc7', description: 'Rest and recover.' },
+  { key: 'artisan',    label: 'Artisan',     icon: '🏺', color: '#c47a3a', description: 'Convert crops into high-value products.' },
+  { key: 'sleeping',   label: 'Sleeping',    icon: '😴', color: '#9a7fc7', description: 'Rest and recover.' },
 ];
 
 const TOTAL_HOURS = 24;
@@ -15,7 +16,7 @@ function clamp(val, min, max) {
 }
 
 export function initSchedulePanel({ getSchedule, onScheduleChange } = {}) {
-  const schedule = { farming: 8, socializing: 6, sleeping: 10 };
+  const schedule = { farming: 8, socializing: 4, artisan: 4, sleeping: 8 };
 
   const panel = document.createElement('div');
   Object.assign(panel.style, {
@@ -154,7 +155,7 @@ export function initSchedulePanel({ getSchedule, onScheduleChange } = {}) {
 
   // Hint
   const hint = document.createElement('div');
-  hint.textContent = 'Crops only grow during your Farming hours each day.';
+  hint.textContent = 'Crops grow during Farming hours. Artisan goods are crafted during Artisan hours.';
   Object.assign(hint.style, {
     color: '#555', font: '11px sans-serif', marginTop: '4px', textAlign: 'center',
   });
@@ -183,14 +184,21 @@ export function initSchedulePanel({ getSchedule, onScheduleChange } = {}) {
 
   /** Player sleeps during the final block of the day. */
   function isSleepingTime(calendarAccum) {
-    return dayHourOf(calendarAccum) >= (schedule.farming + schedule.socializing);
+    return dayHourOf(calendarAccum) >= (schedule.farming + schedule.socializing + schedule.artisan);
   }
 
-  /** Player socializes during the middle block of the day. */
+  /** Player socializes during the second block of the day. */
   function isSocializingTime(calendarAccum) {
     const h = dayHourOf(calendarAccum);
     return h >= schedule.farming && h < (schedule.farming + schedule.socializing);
   }
 
-  return { panel, show, hide, getScheduleState, applyScheduleState, isFarmingTime, isSocializingTime, isSleepingTime };
+  /** Player does artisan work during the third block of the day. */
+  function isArtisanTime(calendarAccum) {
+    const h = dayHourOf(calendarAccum);
+    const artisanStart = schedule.farming + schedule.socializing;
+    return h >= artisanStart && h < artisanStart + schedule.artisan;
+  }
+
+  return { panel, show, hide, getScheduleState, applyScheduleState, isFarmingTime, isSocializingTime, isSleepingTime, isArtisanTime };
 }

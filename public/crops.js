@@ -23,9 +23,10 @@ export class CropType {
    * @param {number}   config.growthTimePerPhase
    * @param {number}   config.yieldGold
    * @param {number}   config.marketIconGID
-   * @param {object}   [config.unlockCriteria] - { cropId: string, cropSold: number, goldEarned: number }
+   * @param {object}   [config.unlockCriteria]  - { cropId: string, cropSold: number, goldEarned: number }
+   * @param {object}   [config.artisanProduct]  - { name, cropInputCount, goldValue, iconGID, unlockCropSold }
    */
-  constructor({ id, name, growthPhaseGIDs, growthTimePerPhase, yieldGold, marketIconGID, unlockCriteria }) {
+  constructor({ id, name, growthPhaseGIDs, growthTimePerPhase, yieldGold, marketIconGID, unlockCriteria, artisanProduct }) {
     this.id = id;
     this.name = name;
     this.growthPhaseGIDs = growthPhaseGIDs;
@@ -33,6 +34,7 @@ export class CropType {
     this.yieldGold = yieldGold;
     this.marketIconGID = marketIconGID;
     this.unlockCriteria = unlockCriteria || null;
+    this.artisanProduct = artisanProduct || null;
   }
 
   /** Returns true if unlock criteria are met. */
@@ -129,6 +131,7 @@ export const CROPS = {
     yieldGold: 25,
     marketIconGID: 4486,
     // Always unlocked (starter crop)
+    artisanProduct: { name: 'Strawberry Jam',   cropInputCount: 5, goldValue: 250,   iconGID: 4486, unlockCropSold: 10000 },
   }),
 
   // ── Add new crops below ───────────────────────────────────────────────────
@@ -144,6 +147,7 @@ export const CROPS = {
       cropSold: 500,
       goldEarned: 10000,
     },
+    artisanProduct: { name: 'Onion Soup',         cropInputCount: 5, goldValue: 450,   iconGID: 4736, unlockCropSold: 10000 },
   }),
 
   potato: new CropType({
@@ -158,6 +162,7 @@ export const CROPS = {
       cropSold: 1000,
       goldEarned: 25000,
     },
+    artisanProduct: { name: 'Potato Mash',        cropInputCount: 5, goldValue: 850,   iconGID: 4986, unlockCropSold: 10000 },
   }),
 
   onion: new CropType({
@@ -172,6 +177,7 @@ export const CROPS = {
       cropSold: 1500,
       goldEarned: 50000,
     },
+    artisanProduct: { name: 'Caramelized Onion',  cropInputCount: 5, goldValue: 1600,  iconGID: 5236, unlockCropSold: 10000 },
   }),
 
     carrot: new CropType({
@@ -186,6 +192,7 @@ export const CROPS = {
       cropSold: 2000,
       goldEarned: 100000,
     },
+    artisanProduct: { name: 'Carrot Cake',        cropInputCount: 5, goldValue: 3000,  iconGID: 5486, unlockCropSold: 10000 },
   }),
 
     blueberry: new CropType({
@@ -200,6 +207,7 @@ export const CROPS = {
       cropSold: 2500,
       goldEarned: 250000,
     },
+    artisanProduct: { name: 'Blueberry Pie',      cropInputCount: 5, goldValue: 6000,  iconGID: 5736, unlockCropSold: 10000 },
   }),
 
     parsnip: new CropType({
@@ -214,6 +222,7 @@ export const CROPS = {
       cropSold: 3000,
       goldEarned: 600000,
     },
+    artisanProduct: { name: 'Parsnip Stew',       cropInputCount: 5, goldValue: 12000, iconGID: 5986, unlockCropSold: 10000 },
   }),
 
     lettuce: new CropType({
@@ -228,6 +237,7 @@ export const CROPS = {
       cropSold: 3500,
       goldEarned: 1500000,
     },
+    artisanProduct: { name: 'Salad Bowl',         cropInputCount: 5, goldValue: 25000, iconGID: 6236, unlockCropSold: 10000 },
   }),
 
     cauliflower: new CropType({
@@ -242,6 +252,7 @@ export const CROPS = {
       cropSold: 4000,
       goldEarned: 4000000,
     },
+    artisanProduct: { name: 'Cauliflower Gratin', cropInputCount: 5, goldValue: 55000, iconGID: 6486, unlockCropSold: 10000 },
   }),
 
     rice: new CropType({
@@ -256,6 +267,7 @@ export const CROPS = {
       cropSold: 4500,
       goldEarned: 10000000,
     },
+    artisanProduct: { name: 'Rice Wine',          cropInputCount: 5, goldValue: 120000, iconGID: 6736, unlockCropSold: 10000 },
   }),
 
     broccoli: new CropType({
@@ -270,6 +282,7 @@ export const CROPS = {
       cropSold: 5000,
       goldEarned: 30000000,
     },
+    artisanProduct: { name: 'Broccoli Casserole', cropInputCount: 5, goldValue: 280000, iconGID: 6986, unlockCropSold: 10000 },
   }),
 
     asparagus: new CropType({
@@ -284,5 +297,6 @@ export const CROPS = {
       cropSold: 5500,
       goldEarned: 100000000,
     },
+    artisanProduct: { name: 'Asparagus Risotto',  cropInputCount: 5, goldValue: 650000, iconGID: 7236, unlockCropSold: 10000 },
   }),
 };
