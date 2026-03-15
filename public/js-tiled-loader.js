@@ -866,6 +866,66 @@ async function main() {
       animator.draw(offCtx, player.x, player.y);
     }
 
+    // Crop zone icon bubbles + circular growth progress ring (unlocked zones only)
+    const CROP_BUBBLE_COLS = 125;
+    cropZones.forEach(zone => {
+      if (!unlockedZones.has(zone.name)) return;
+      const entry = zoneCrops.get(zone.name);
+      if (!entry) return;
+      const { instance } = entry;
+      const ct = instance.cropType;
+      if (!tilesetImage || !ct.marketIconGID) return;
+
+      const iconSize = 14;
+      const r        = iconSize / 2 + 3;
+      const cx       = Math.round(zone.x + (zone.width  || 0) / 2);
+      const cy       = Math.round(zone.y + (zone.height || 0) / 2);
+      const bcy      = cy - iconSize - 8;   // bubble centre Y, above zone
+
+      // Dark green bubble background
+      offCtx.save();
+      offCtx.globalAlpha = 0.88;
+      offCtx.fillStyle   = 'rgba(10, 25, 10, 0.75)';
+      offCtx.beginPath();
+      offCtx.arc(cx, bcy, r, 0, Math.PI * 2);
+      offCtx.fill();
+      offCtx.strokeStyle = '#3a7a3a';
+      offCtx.lineWidth   = 1.5;
+      offCtx.stroke();
+      offCtx.globalAlpha = 1.0;
+
+      // Crop market icon
+      const tid = ct.marketIconGID - 1;
+      offCtx.imageSmoothingEnabled = false;
+      offCtx.drawImage(
+        tilesetImage,
+        (tid % CROP_BUBBLE_COLS) * 16, Math.floor(tid / CROP_BUBBLE_COLS) * 16, 16, 16,
+        cx - iconSize / 2, bcy - iconSize / 2, iconSize, iconSize
+      );
+      offCtx.restore();
+
+      // Circular progress ring
+      const progress   = instance.overallProgress;
+      const startAngle = -Math.PI / 2;
+      const endAngle   = startAngle + progress * Math.PI * 2;
+      const ringR      = r + 1.5;
+      offCtx.save();
+      offCtx.beginPath();
+      offCtx.arc(cx, bcy, ringR, 0, Math.PI * 2);
+      offCtx.strokeStyle = 'rgba(0, 0, 0, 0.4)';
+      offCtx.lineWidth   = 2;
+      offCtx.stroke();
+      if (progress > 0) {
+        offCtx.beginPath();
+        offCtx.arc(cx, bcy, ringR, startAngle, endAngle);
+        offCtx.strokeStyle = instance.isFullyGrown ? '#ffd700' : '#7dff7d';
+        offCtx.lineWidth   = 2;
+        offCtx.lineCap     = 'round';
+        offCtx.stroke();
+      }
+      offCtx.restore();
+    });
+
     // Crop zone overlays (locked zones only)
     cropZones.forEach((zone, i) => {
       const x = Math.round(zone.x);
@@ -904,12 +964,16 @@ async function main() {
       }
     });
 
-    // Draw artisan product icons above unlocked artisan zones (always visible — artisan runs 24/7)
+    // Draw artisan product icons + production progress ring above unlocked artisan zones
     if (artisanZones.length > 0) {
       const unlockedArtisanList = artisanZones.filter(z => unlockedArtisanZones.has(z.name));
       if (unlockedArtisanList.length > 0) {
-        const iconSize = 14;
-        const ACOLS   = 125;
+        const iconSize    = 14;
+        const ACOLS       = 125;
+        const artisanWS   = workState.get('artisan');
+        const artProgress = artisanWS
+          ? Math.min(1, artisanWS.tickTimer / artisanWS.act.productionIntervalSecs)
+          : 0;
         unlockedArtisanList.forEach((zone) => {
           const assignedCropId = artisanZoneProductMap.get(zone.name);
           const assignedCrop   = assignedCropId ? CROPS[assignedCropId] : null;
@@ -941,6 +1005,26 @@ async function main() {
               (tid % ACOLS) * 16, Math.floor(tid / ACOLS) * 16, 16, 16,
               cx - iconSize / 2, bcy - iconSize / 2, iconSize, iconSize
             );
+          }
+          offCtx.restore();
+
+          // Production progress ring (amber)
+          const startAngle = -Math.PI / 2;
+          const endAngle   = startAngle + artProgress * Math.PI * 2;
+          const ringR      = r + 1.5;
+          offCtx.save();
+          offCtx.beginPath();
+          offCtx.arc(cx, bcy, ringR, 0, Math.PI * 2);
+          offCtx.strokeStyle = 'rgba(0, 0, 0, 0.4)';
+          offCtx.lineWidth   = 2;
+          offCtx.stroke();
+          if (artProgress > 0) {
+            offCtx.beginPath();
+            offCtx.arc(cx, bcy, ringR, startAngle, endAngle);
+            offCtx.strokeStyle = '#ffaa44';
+            offCtx.lineWidth   = 2;
+            offCtx.lineCap     = 'round';
+            offCtx.stroke();
           }
           offCtx.restore();
         });
