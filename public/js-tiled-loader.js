@@ -803,7 +803,7 @@ async function main() {
     });
 
     // Draw artisan product icons above active artisan zones during artisan hours
-    if (isArtisanTime && isArtisanTime()) {
+    if (schedulePanel && schedulePanel.isArtisanTime(calendarAccum)) {
       const artisanCropList = Object.values(CROPS).filter(ct => ct.artisanProduct);
       const unlockedArtisanList = artisanZones.filter(z => unlockedArtisanZones.has(z.name));
       if (artisanCropList.length > 0 && unlockedArtisanList.length > 0) {
