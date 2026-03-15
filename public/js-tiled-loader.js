@@ -975,14 +975,32 @@ async function main() {
           ? Math.min(1, artisanWS.tickTimer / artisanWS.act.productionIntervalSecs)
           : 0;
         unlockedArtisanList.forEach((zone) => {
-          const assignedCropId = artisanZoneProductMap.get(zone.name);
-          const assignedCrop   = assignedCropId ? CROPS[assignedCropId] : null;
-          const ap             = assignedCrop ? assignedCrop.artisanProduct : null;
-          if (!ap) return;
+          const assignedCropId  = artisanZoneProductMap.get(zone.name);
+          const assignedCrop    = assignedCropId ? CROPS[assignedCropId] : null;
+          const ap              = assignedCrop ? assignedCrop.artisanProduct : null;
           const cx  = Math.round(zone.x + (zone.width  || 0) / 2);
           const cy  = Math.round(zone.y + (zone.height || 0) / 2);
           const bcy = cy - iconSize - 8;  // bubble centre Y (above zone)
           const r   = iconSize / 2 + 3;
+
+          // Check if the artisan product is actually unlocked (sold threshold met)
+          const apUnlocked = ap &&
+            (cropStats.get(assignedCropId)?.sold ?? 0) >= ap.unlockCropSold;
+
+          if (!apUnlocked) {
+            // Blank circle — workstation unlocked but product not yet unlocked
+            offCtx.save();
+            offCtx.globalAlpha = 0.7;
+            offCtx.fillStyle   = 'rgba(30, 30, 30, 0.7)';
+            offCtx.beginPath();
+            offCtx.arc(cx, bcy, r, 0, Math.PI * 2);
+            offCtx.fill();
+            offCtx.strokeStyle = '#555';
+            offCtx.lineWidth   = 1.5;
+            offCtx.stroke();
+            offCtx.restore();
+            return; // skip icon and progress ring
+          }
 
           offCtx.save();
           // Amber bubble background
