@@ -13,6 +13,7 @@ import { saveGame, loadGame, clearSave } from './saveSystem.js';
 import { initSettingsPanel } from './settingsPanel.js';
 import { initEventsPanel } from './eventsPanel.js';
 import { initSchedulePanel } from './schedulePanel.js';
+import { WORK_ACTIVITIES } from './activityRegistry.js';
 import { allEvents } from './src/eventTemplates.js';
 import { BOTTOM_BAR_HEIGHT } from './constants.js';
 import { createPlayerAnimator, ACTIONS, DIRS } from './playerAnimator.js';
@@ -48,8 +49,6 @@ async function main() {
     let socialTravelTimer = 0;
     let _wasSocializing = false;
     let _lastSocialPathIndex = -1; // track last zone we pathed to (avoids re-pathing every tick)
-    let artisanZoneTravelIndex = 0;
-    let artisanZoneTravelTimer = 0;
     let nav = null; // pathfinding nav grid — set after map loads
     function getUnlockedZoneList() {
       return cropZones.filter(z => unlockedZones.has(z.name));
@@ -98,34 +97,50 @@ async function main() {
       }
     }
 
-    function getUnlockedArtisanZoneList() {
-      return artisanZones.filter(z => unlockedArtisanZones.has(z.name));
+    // ── Generic work-activity helpers (driven by WORK_ACTIVITIES registry) ──────
+
+    /** Build the context object passed to registry callbacks for a given workState entry. */
+    function buildProductionCtx(ws) {
+      return {
+        zoneProductMap:        ws.zoneProductMap,
+        cropInventory,
+        cropStats,
+        productStats:          ws.productStats,
+        productInventory:      ws.productInventory,
+        autoSellSet,
+        gold,
+        CROPS,
+        gameSpeed,
+        productionIntervalSecs: ws.act.productionIntervalSecs,
+      };
     }
 
-    function updatePlayerArtisanTravel(dt) {
-      const list = getUnlockedArtisanZoneList();
+    /** Move player periodically between unlocked zones for a work activity. */
+    function updateWorkActivityTravel(actKey, dt) {
+      const ws = workState.get(actKey);
+      if (!ws) return;
+      const list = ws.zones.filter(z => ws.unlockedSet.has(z.name));
       if (list.length === 0) return;
-      artisanZoneTravelTimer += dt;
-      if (artisanZoneTravelTimer >= 10) {
-        artisanZoneTravelTimer = 0;
-        artisanZoneTravelIndex = (artisanZoneTravelIndex + 1) % list.length;
-        const pt = list[artisanZoneTravelIndex];
+      ws.travelTimer += dt;
+      if (ws.travelTimer >= ws.act.travelIntervalSecs) {
+        ws.travelTimer = 0;
+        ws.travelIndex = (ws.travelIndex + 1) % list.length;
+        const pt = list[ws.travelIndex];
         setPlayerPath(pt.x + (pt.width || 0) / 2, pt.y + (pt.height || 0) / 2);
       }
     }
 
-    function hasArtisanWork() {
-      return getUnlockedArtisanZoneList().some(zone => {
-        const cropId = artisanZoneProductMap.get(zone.name);
-        if (!cropId) return false;
-        const cropType = CROPS[cropId];
-        if (!cropType || !cropType.artisanProduct) return false;
-        const ap = cropType.artisanProduct;
-        const sold = cropStats.get(cropId)?.sold ?? 0;
-        if (sold < ap.unlockCropSold) return false;
-        return (cropInventory.get(cropId) || 0) >= ap.cropInputCount;
-      });
+    /** Returns true if any unlocked zone in this activity has work ready to do. */
+    function hasWorkActivity(actKey) {
+      const ws = workState.get(actKey);
+      if (!ws) return false;
+      const ctx = buildProductionCtx(ws);
+      return ws.zones.filter(z => ws.unlockedSet.has(z.name)).some(z => ws.act.hasWork(z, ctx));
     }
+
+    // Backward-compat shim for code that still calls hasArtisanWork() directly.
+    const hasArtisanWork = () => hasWorkActivity('artisan');
+    const getUnlockedArtisanZoneList = () => (workState.get('artisan')?.zones ?? []).filter(z => workState.get('artisan').unlockedSet.has(z.name));
 
   const calendar = new Calendar();
 
@@ -171,17 +186,39 @@ async function main() {
     socialZones.sort((a, b) => (a.name || '').localeCompare(b.name || '', undefined, { numeric: true }));
   }
 
-  // Artisan zone points (from the ArtisanZones object layer)
-  let artisanZones = [];
-  const artisanZonesLayer = map.layers && map.layers.find(
-    l => l.type === 'objectgroup' && l.name && l.name.toLowerCase() === 'artisanzones'
-  );
-  if (artisanZonesLayer && Array.isArray(artisanZonesLayer.objects)) {
-    artisanZones = artisanZonesLayer.objects.map((obj, i) => ({
-      ...obj,
-      name: `ArtisanZone${String(i + 1).padStart(2, '0')}`,
-    }));
+  // ── Zone-based work activities (artisan + future ones from activityRegistry) ──
+  // workState: activityKey → { act, zones, unlockedSet, costMap, zoneProductMap,
+  //                            productStats, productInventory,
+  //                            travelIndex, travelTimer, tickTimer }
+  const workState = new Map();
+  for (const act of WORK_ACTIVITIES) {
+    const layer = map.layers?.find(
+      l => l.type === 'objectgroup' && l.name?.toLowerCase() === act.mapLayerName
+    );
+    const zones = (layer && Array.isArray(layer.objects))
+      ? act.loadZones(layer.objects)
+      : [];
+    workState.set(act.key, {
+      act,
+      zones,
+      unlockedSet:      new Set(),
+      costMap:          new Map(),  // populated below after getTiledProp is defined
+      zoneProductMap:   new Map(),
+      productStats:     act.initProductStats(CROPS),
+      productInventory: new Map(),
+      travelIndex: 0,
+      travelTimer: 0,
+      tickTimer:   0,
+    });
   }
+
+  // Backward-compat aliases — referenced by UI panels (manageFarm, realEstate, market, stats)
+  const _aws               = workState.get('artisan');
+  const artisanZones        = _aws.zones;
+  const unlockedArtisanZones = _aws.unlockedSet;
+  const artisanZoneProductMap = _aws.zoneProductMap;
+  const artisanStats          = _aws.productStats;
+  const artisanInventory      = _aws.productInventory;
 
   // Walkable polygon nav grid (WalkableZone object layer)
   const walkableLayer = map.layers && map.layers.find(
@@ -228,14 +265,16 @@ async function main() {
     }
   });
 
-  // Artisan zone costs and unlock set
-  const artisanZoneCostMap = new Map();
-  artisanZones.forEach(zone => {
-    const rawCost = getTiledProp(zone, 'cost');
-    const cost = typeof rawCost === 'number' ? rawCost : (parseInt(rawCost, 10) || 25000);
-    artisanZoneCostMap.set(zone.name, cost);
-  });
-  const unlockedArtisanZones = new Set(); // none unlocked at game start
+  // Build cost maps for all work activities (getTiledProp is hoisted, safe to call here)
+  for (const [, ws] of workState) {
+    ws.zones.forEach(zone => {
+      const rawCost = getTiledProp(zone, 'cost');
+      const cost = typeof rawCost === 'number' ? rawCost : (parseInt(rawCost, 10) || ws.act.defaultZoneCost);
+      ws.costMap.set(zone.name, cost);
+    });
+  }
+  // Backward-compat alias
+  const artisanZoneCostMap = _aws.costMap;
 
   // Player state (start in FarmZone01 if available)
   const farmZone01 = cropZones.find(z => z.name === 'FarmZone01');
@@ -254,20 +293,13 @@ async function main() {
   }
 
   // Crop inventory and auto-sell state
-  const cropInventory   = new Map(); // cropId → count in hand
-  const artisanInventory = new Map(); // artisanKey → count  (key = cropId + '_artisan')
-  const autoSellSet     = new Set(Object.keys(CROPS)); // cropIds with auto-sell enabled (on by default)
+  const cropInventory  = new Map(); // cropId → count in hand
+  // artisanInventory, artisanStats, artisanZoneProductMap are aliases set up in the workState section above
+  const autoSellSet    = new Set(Object.keys(CROPS)); // cropIds with auto-sell enabled (on by default)
   const unlockedCrops  = new Set(Object.keys(CROPS)); // cropIds the player has access to
   // Lifetime stats: cropId → { grown, sold, lifetimeSales }
   const cropStats = new Map();
   Object.keys(CROPS).forEach(id => cropStats.set(id, { grown: 0, sold: 0, lifetimeSales: 0 }));
-  // Artisan stats: artisanKey → { crafted, sold, lifetimeSales }
-  const artisanStats = new Map();
-  Object.values(CROPS).forEach(ct => {
-    if (ct.artisanProduct) artisanStats.set(`${ct.id}_artisan`, { crafted: 0, sold: 0, lifetimeSales: 0 });
-  });
-  // Artisan zone product assignments: zoneName → cropId
-  const artisanZoneProductMap = new Map();
 
   function assignDefaultArtisanProduct(zoneName) {
     if (artisanZoneProductMap.has(zoneName)) return;
@@ -371,9 +403,7 @@ async function main() {
   const SLEEP_WORLD_X = SLEEP_TILE_COL * 16 + 8;
   const SLEEP_WORLD_Y = SLEEP_TILE_ROW * 16 + 8;
 
-  // Artisan state
-  let artisanTickTimer = 0;
-  const ARTISAN_INTERVAL_SECS = 5; // produce 1 batch of artisan goods every 5 real-speed seconds
+  // Work activity tick timers live inside workState entries (ws.tickTimer per activity)
 
   function drawBottomBar() {
     const w = bottomBar.width;
@@ -573,25 +603,22 @@ async function main() {
     // Draws gold icon + amount + GPS; returns right edge x
     function computeGoldPerSecond() {
       let gps = 0;
-      const act = schedulePanel.isArtisanTime(calendarAccum) && hasArtisanWork() ? 'artisan'
-                : schedulePanel.isFarmingTime(calendarAccum)                     ? 'farming'
-                : null;
-      if (act === 'farming') {
+      if (schedulePanel.isFarmingTime(calendarAccum)) {
         zoneCrops.forEach(({ instance, tileCount }) => {
           const ct = instance.cropType;
           const cycleTime = (ct.growthPhaseGIDs.length - 1) * ct.growthTimePerPhase;
           if (cycleTime > 0 && autoSellSet.has(ct.id)) gps += (tileCount * ct.yieldGold * gameSpeed) / cycleTime;
         });
-      } else if (act === 'artisan') {
-        getUnlockedArtisanZoneList().forEach(zone => {
-          const cropId = artisanZoneProductMap.get(zone.name);
-          if (!cropId) return;
-          const ct = CROPS[cropId];
-          if (!ct?.artisanProduct) return;
-          const ap = ct.artisanProduct;
-          if ((cropStats.get(cropId)?.sold ?? 0) < ap.unlockCropSold) return;
-          if (autoSellSet.has(`${cropId}_artisan`)) gps += ap.goldValue * gameSpeed / ARTISAN_INTERVAL_SECS;
-        });
+      } else {
+        // Zone-based work activities (artisan + future activities)
+        for (const [actKey, ws] of workState) {
+          if (!schedulePanel.isActivityTime(actKey, calendarAccum)) continue;
+          if (!hasWorkActivity(actKey)) continue;
+          const ctx = buildProductionCtx(ws);
+          ws.zones.filter(z => ws.unlockedSet.has(z.name)).forEach(zone => {
+            gps += ws.act.getGPS(zone, ctx);
+          });
+        }
       }
       return gps;
     }
@@ -1120,6 +1147,16 @@ async function main() {
         elapsedMsInDay: (Date.now() - calendar._startTime) % (4 * 60 * 1000),
       },
       cropInventory: Object.fromEntries(cropInventory),
+      // Work activities state (generic — driven by WORK_ACTIVITIES registry)
+      workActivities: Object.fromEntries(
+        Array.from(workState.entries()).map(([key, ws]) => [key, {
+          unlockedSet:      Array.from(ws.unlockedSet),
+          zoneProductMap:   Object.fromEntries(ws.zoneProductMap),
+          productStats:     Object.fromEntries(Array.from(ws.productStats.entries()).map(([k, s]) => [k, { ...s }])),
+          productInventory: Object.fromEntries(ws.productInventory),
+        }])
+      ),
+      // Legacy keys kept so saves created before the registry refactor can still be read
       artisanInventory: Object.fromEntries(artisanInventory),
       artisanStats: Object.fromEntries(Array.from(artisanStats.entries()).map(([k, s]) => [k, { ...s }])),
       artisanZoneProductMap: Object.fromEntries(artisanZoneProductMap),
@@ -1163,14 +1200,25 @@ async function main() {
       cropInventory.clear();
       Object.entries(state.cropInventory).forEach(([id, count]) => cropInventory.set(id, count));
     }
-    if (state.artisanInventory) {
-      artisanInventory.clear();
-      Object.entries(state.artisanInventory).forEach(([key, count]) => artisanInventory.set(key, count));
-    }
-    if (state.artisanStats) {
-      Object.entries(state.artisanStats).forEach(([key, s]) => {
-        if (artisanStats.has(key)) Object.assign(artisanStats.get(key), s);
-      });
+    // Work activities — new format
+    if (state.workActivities) {
+      for (const [key, data] of Object.entries(state.workActivities)) {
+        const ws = workState.get(key);
+        if (!ws) continue;
+        if (data.unlockedSet)      { ws.unlockedSet.clear();      data.unlockedSet.forEach(z => ws.unlockedSet.add(z)); }
+        if (data.zoneProductMap)   { ws.zoneProductMap.clear();   Object.entries(data.zoneProductMap).forEach(([k,v]) => ws.zoneProductMap.set(k,v)); }
+        if (data.productStats)     { Object.entries(data.productStats).forEach(([k,s]) => { if (ws.productStats.has(k)) Object.assign(ws.productStats.get(k), s); }); }
+        if (data.productInventory) { ws.productInventory.clear(); Object.entries(data.productInventory).forEach(([k,v]) => ws.productInventory.set(k,v)); }
+      }
+    } else {
+      // Legacy save format (before activity registry refactor)
+      const aws = workState.get('artisan');
+      if (aws) {
+        if (state.unlockedArtisanZones) { aws.unlockedSet.clear();    state.unlockedArtisanZones.forEach(z => aws.unlockedSet.add(z)); }
+        if (state.artisanZoneProductMap) { aws.zoneProductMap.clear(); Object.entries(state.artisanZoneProductMap).forEach(([k,v]) => aws.zoneProductMap.set(k,v)); }
+        if (state.artisanStats)     { Object.entries(state.artisanStats).forEach(([k,s]) => { if (aws.productStats.has(k)) Object.assign(aws.productStats.get(k), s); }); }
+        if (state.artisanInventory) { aws.productInventory.clear(); Object.entries(state.artisanInventory).forEach(([k,v]) => aws.productInventory.set(k,v)); }
+      }
     }
     if (state.autoSellSet) {
       autoSellSet.clear();
@@ -1180,15 +1228,7 @@ async function main() {
       unlockedZones.clear();
       state.unlockedZones.forEach(z => unlockedZones.add(z));
     }
-    if (state.unlockedArtisanZones) {
-      unlockedArtisanZones.clear();
-      state.unlockedArtisanZones.forEach(z => unlockedArtisanZones.add(z));
-    }
-    if (state.artisanZoneProductMap) {
-      artisanZoneProductMap.clear();
-      Object.entries(state.artisanZoneProductMap).forEach(([k, v]) => artisanZoneProductMap.set(k, v));
-    }
-    // Auto-assign defaults for any unlocked zones with no assignment (e.g. saves before this feature)
+    // Auto-assign defaults for any unlocked artisan zones with no assignment
     for (const zoneName of unlockedArtisanZones) assignDefaultArtisanProduct(zoneName);
     if (state.unlockedCrops) {
       unlockedCrops.clear();
@@ -1254,10 +1294,12 @@ async function main() {
 
     // Each real second = 4 game-ticks of gameSpeed units
     const DT = 4 * gameSpeed;
-    const goldBefore = gold.amount;
-    const producedArtisan = new Map(); // artisanKey → count
-    const harvestedCrops  = new Map(); // cropId → count
-    let artisanAcc = artisanTickTimer;
+    const goldBefore   = gold.amount;
+    const producedWork  = new Map();  // actKey → Map<productKey, count>
+    const harvestedCrops = new Map(); // cropId → count
+    // Per-activity tick accumulators (start from current timer values)
+    const workAcc = new Map();
+    for (const [key, ws] of workState) workAcc.set(key, ws.tickTimer);
 
     for (let t = 0; t < simSecs; t++) {
       calendarAccum += DT;
@@ -1290,43 +1332,41 @@ async function main() {
         });
       }
 
-      if (artisanActive) {
-        artisanAcc += DT;
-        while (artisanAcc >= ARTISAN_INTERVAL_SECS) {
-          artisanAcc -= ARTISAN_INTERVAL_SECS;
-          getUnlockedArtisanZoneList().forEach(zone => {
-            const cropId   = artisanZoneProductMap.get(zone.name);
-            if (!cropId) return;
-            const cropType = CROPS[cropId];
-            if (!cropType?.artisanProduct) return;
-            const ap   = cropType.artisanProduct;
-            if ((cropStats.get(cropId)?.sold ?? 0) < ap.unlockCropSold) return;
-            const have = cropInventory.get(cropId) || 0;
-            if (have < ap.cropInputCount) return;
-            cropInventory.set(cropId, have - ap.cropInputCount);
-            const artisanKey = `${cropId}_artisan`;
-            const astat = artisanStats.get(artisanKey);
-            if (astat) astat.crafted += 1;
-            producedArtisan.set(artisanKey, (producedArtisan.get(artisanKey) || 0) + 1);
-            if (autoSellSet.has(artisanKey)) {
-              gold.add(ap.goldValue);
-              if (astat) { astat.sold += 1; astat.lifetimeSales += ap.goldValue; }
-            } else {
-              artisanInventory.set(artisanKey, (artisanInventory.get(artisanKey) || 0) + 1);
-            }
-          });
+      // Zone-based work activity production (offline sim)
+      for (const [actKey, ws] of workState) {
+        if (schedulePanel.isActivityTime(actKey, calendarAccum)) {
+          let acc = (workAcc.get(actKey) || 0) + DT;
+          while (acc >= ws.act.productionIntervalSecs) {
+            acc -= ws.act.productionIntervalSecs;
+            const ctx = {
+              zoneProductMap: ws.zoneProductMap, cropInventory, cropStats,
+              productStats: ws.productStats, productInventory: ws.productInventory,
+              autoSellSet, gold, CROPS, gameSpeed: 1,
+              productionIntervalSecs: ws.act.productionIntervalSecs,
+            };
+            ws.zones.filter(z => ws.unlockedSet.has(z.name)).forEach(zone => {
+              const productKey = ws.act.produce(zone, ctx);
+              if (productKey) {
+                if (!producedWork.has(actKey)) producedWork.set(actKey, new Map());
+                const pm = producedWork.get(actKey);
+                pm.set(productKey, (pm.get(productKey) || 0) + 1);
+              }
+            });
+          }
+          workAcc.set(actKey, acc);
+        } else {
+          workAcc.set(actKey, 0);
         }
-      } else {
-        artisanAcc = 0;
       }
     }
 
-    artisanTickTimer = artisanAcc;
-    return { goldEarned: gold.amount - goldBefore, harvestedCrops, producedArtisan, secondsSimulated: simSecs, cappedAt: offlineRealSecs > MAX_SECS };
+    // Sync tick timers back to workState
+    for (const [key, ws] of workState) ws.tickTimer = workAcc.get(key) ?? 0;
+    return { goldEarned: gold.amount - goldBefore, harvestedCrops, producedWork, secondsSimulated: simSecs, cappedAt: offlineRealSecs > MAX_SECS };
   }
 
   function showOfflineModal(result, offlineRealSecs) {
-    const { goldEarned, harvestedCrops, producedArtisan, secondsSimulated, cappedAt } = result;
+    const { goldEarned, harvestedCrops, producedWork, secondsSimulated, cappedAt } = result;
     const modal = document.createElement('div');
     Object.assign(modal.style, {
       position:     'fixed', top: '0', left: '0', width: '100vw', height: '100vh',
@@ -1356,7 +1396,8 @@ async function main() {
     Object.assign(sub.style, { font: '11px sans-serif', color: '#888', marginBottom: '14px' });
     box.appendChild(sub);
 
-    if (goldEarned > 0 || harvestedCrops.size > 0 || producedArtisan.size > 0) {
+    const totalWorkProduced = Array.from(producedWork.values()).reduce((s, pm) => s + pm.size, 0);
+    if (goldEarned > 0 || harvestedCrops.size > 0 || totalWorkProduced > 0) {
       const earned = document.createElement('div');
       Object.assign(earned.style, { font: 'bold 13px sans-serif', color: '#ffd700', marginBottom: '8px' });
       earned.textContent = `🪙 +${shortNumber(goldEarned)} gold earned`;
@@ -1377,20 +1418,22 @@ async function main() {
         });
       }
 
-      if (producedArtisan.size > 0) {
-        const hdr = document.createElement('div');
-        hdr.textContent = 'Artisan goods produced:';
-        Object.assign(hdr.style, { font: 'bold 11px sans-serif', color: '#c47a3a', marginTop: '8px', marginBottom: '4px' });
-        box.appendChild(hdr);
-        producedArtisan.forEach((count, artisanKey) => {
-          const cropId = artisanKey.replace('_artisan', '');
-          const ap = CROPS[cropId]?.artisanProduct;
-          if (!ap) return;
-          const row = document.createElement('div');
-          row.textContent = `  ${ap.name}: ${shortNumber(count)}`;
-          Object.assign(row.style, { font: '12px sans-serif', color: '#ccc', marginBottom: '2px' });
-          box.appendChild(row);
-        });
+      if (producedWork.size > 0) {
+        for (const [actKey, productMap] of producedWork) {
+          if (productMap.size === 0) continue;
+          const actDesc = workState.get(actKey)?.act;
+          const hdr = document.createElement('div');
+          hdr.textContent = (actDesc?.displayName ?? actKey) + ' produced:';
+          Object.assign(hdr.style, { font: 'bold 11px sans-serif', color: actDesc?.color ?? '#aaa', marginTop: '8px', marginBottom: '4px' });
+          box.appendChild(hdr);
+          productMap.forEach((count, productKey) => {
+            const label = actDesc?.getProductLabel(productKey, CROPS) ?? productKey;
+            const row = document.createElement('div');
+            row.textContent = `  ${label}: ${shortNumber(count)}`;
+            Object.assign(row.style, { font: '12px sans-serif', color: '#ccc', marginBottom: '2px' });
+            box.appendChild(row);
+          });
+        }
       }
     } else {
       const none = document.createElement('div');
@@ -1540,39 +1583,23 @@ async function main() {
     });
     stats.update(); // Always update stats panel
 
-    // Artisan production: during artisan hours, consume crops and produce artisan goods
-    if (artisanActive) {
-      artisanTickTimer += gameSpeed;
-      if (artisanTickTimer >= ARTISAN_INTERVAL_SECS) {
-        artisanTickTimer -= ARTISAN_INTERVAL_SECS;
-        let artisanProduced = false;
-        getUnlockedArtisanZoneList().forEach(zone => {
-          const cropId = artisanZoneProductMap.get(zone.name);
-          if (!cropId) return;
-          const cropType = CROPS[cropId];
-          if (!cropType || !cropType.artisanProduct) return;
-          const ap   = cropType.artisanProduct;
-          const sold = cropStats.get(cropId)?.sold ?? 0;
-          if (sold < ap.unlockCropSold) return;
-          const have = cropInventory.get(cropId) || 0;
-          if (have < ap.cropInputCount) return;
-          cropInventory.set(cropId, have - ap.cropInputCount);
-          const artisanKey = `${cropId}_artisan`;
-          const astat = artisanStats.get(artisanKey);
-          if (astat) astat.crafted += 1;
-          if (autoSellSet.has(artisanKey)) {
-            gold.add(ap.goldValue);
-            if (astat) { astat.sold += 1; astat.lifetimeSales += ap.goldValue; }
-          } else {
-            artisanInventory.set(artisanKey, (artisanInventory.get(artisanKey) || 0) + 1);
-          }
-          artisanProduced = true;
-        });
-        if (artisanProduced && activeTab === marketTabIndex) market.update();
+    // Zone-based work activity production (artisan + future activities)
+    let workProduced = false;
+    for (const [actKey, ws] of workState) {
+      if (schedulePanel.isActivityTime(actKey, calendarAccum)) {
+        ws.tickTimer += gameSpeed;
+        if (ws.tickTimer >= ws.act.productionIntervalSecs) {
+          ws.tickTimer -= ws.act.productionIntervalSecs;
+          const ctx = buildProductionCtx(ws);
+          ws.zones.filter(z => ws.unlockedSet.has(z.name)).forEach(zone => {
+            if (ws.act.produce(zone, ctx)) workProduced = true;
+          });
+        }
+      } else {
+        ws.tickTimer = 0;
       }
-    } else {
-      artisanTickTimer = 0;
     }
+    if (workProduced && activeTab === marketTabIndex) market.update();
     if (!isSleeping && sleepPendingTicks === 0) {
       if (socializingActive) {
         if (!_wasSocializing) {
@@ -1580,11 +1607,20 @@ async function main() {
           socialTravelTimer = 0;
         }
         updatePlayerSocialTravel(gameSpeed);
-      } else if (artisanActive) {
-        if (getUnlockedArtisanZoneList().length > 0 && hasArtisanWork()) updatePlayerArtisanTravel(gameSpeed);
-        else updatePlayerZoneTravel(gameSpeed); // no artisan zones or no crops available — fall back to farming
       } else if (farmingActive) {
         updatePlayerZoneTravel(gameSpeed);
+      } else {
+        // Zone-based work activity travel (artisan + any future activities)
+        for (const [actKey, ws] of workState) {
+          if (schedulePanel.isActivityTime(actKey, calendarAccum)) {
+            if (ws.unlockedSet.size > 0 && hasWorkActivity(actKey)) {
+              updateWorkActivityTravel(actKey, gameSpeed);
+            } else {
+              updatePlayerZoneTravel(gameSpeed); // fall back to farm travel
+            }
+            break; // only one activity active at a time
+          }
+        }
       }
     }
     _wasSocializing = socializingActive;

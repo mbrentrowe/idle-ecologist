@@ -177,28 +177,27 @@ export function initSchedulePanel({ getSchedule, onScheduleChange } = {}) {
     return ((calendarAccum % DAY_REAL_SECS) / DAY_REAL_SECS) * TOTAL_HOURS;
   }
 
-  /** Crops only grow during farming hours (first block of the day). */
-  function isFarmingTime(calendarAccum) {
-    return dayHourOf(calendarAccum) < schedule.farming;
-  }
-
-  /** Player sleeps during the final block of the day. */
-  function isSleepingTime(calendarAccum) {
-    return dayHourOf(calendarAccum) >= (schedule.farming + schedule.socializing + schedule.artisan);
-  }
-
-  /** Player socializes during the second block of the day. */
-  function isSocializingTime(calendarAccum) {
+  /**
+   * Generic time-window check: true when the in-game hour falls in the
+   * activity's scheduled block.  Blocks run in ACTIVITIES order.
+   * Adding a new activity to ACTIVITIES automatically gives it a time-window.
+   */
+  function isActivityTime(key, calendarAccum) {
     const h = dayHourOf(calendarAccum);
-    return h >= schedule.farming && h < (schedule.farming + schedule.socializing);
+    let start = 0;
+    for (const act of ACTIVITIES) {
+      if (act.key === key) return h >= start && h < start + (schedule[key] ?? 0);
+      start += schedule[act.key] ?? 0;
+    }
+    return false;
   }
 
-  /** Player does artisan work during the third block of the day. */
-  function isArtisanTime(calendarAccum) {
-    const h = dayHourOf(calendarAccum);
-    const artisanStart = schedule.farming + schedule.socializing;
-    return h >= artisanStart && h < artisanStart + schedule.artisan;
-  }
+  // Named wrappers kept for backward compatibility with existing callers.
+  function isFarmingTime(calendarAccum)     { return isActivityTime('farming',     calendarAccum); }
+  function isSocializingTime(calendarAccum) { return isActivityTime('socializing', calendarAccum); }
+  function isSleepingTime(calendarAccum)    { return isActivityTime('sleeping',    calendarAccum); }
+  function isArtisanTime(calendarAccum)     { return isActivityTime('artisan',     calendarAccum); }
 
-  return { panel, show, hide, getScheduleState, applyScheduleState, isFarmingTime, isSocializingTime, isSleepingTime, isArtisanTime };
+  return { panel, show, hide, getScheduleState, applyScheduleState,
+           isActivityTime, isFarmingTime, isSocializingTime, isSleepingTime, isArtisanTime };
 }
