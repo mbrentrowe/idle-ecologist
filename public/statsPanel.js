@@ -633,10 +633,7 @@ export function initStatsPanel({ CROPS, cropStats, tilesetImage, cropInventory, 
 
   const farmingTimeEl     = makeTimeCard('🌾', 'Farming',     '#6dbd5a');
   const socializingTimeEl = makeTimeCard('💬', 'Socializing', '#5ab5bd');
-  const artisanTimeEl     = makeTimeCard('🏺', 'Artisan',     '#c47a3a');
   const sleepingTimeEl    = makeTimeCard('😴', 'Sleeping',    '#9a7fc7');
-
-  Object.assign(timeGrid.style, { gridTemplateColumns: '1fr 1fr 1fr 1fr' });
 
   timeSection.appendChild(timeGrid);
   panel.appendChild(timeSection);
@@ -644,7 +641,6 @@ export function initStatsPanel({ CROPS, cropStats, tilesetImage, cropInventory, 
   function updateTimeSpent() {
     if (window.getTotalFarmingHours)     farmingTimeEl.textContent     = `${window.getTotalFarmingHours().toFixed(1)} h`;
     if (window.getTotalSocializingHours) socializingTimeEl.textContent = `${window.getTotalSocializingHours().toFixed(1)} h`;
-    if (window.getTotalArtisanHours)     artisanTimeEl.textContent     = `${window.getTotalArtisanHours().toFixed(1)} h`;
     if (window.getTotalSleepingHours)    sleepingTimeEl.textContent    = `${window.getTotalSleepingHours().toFixed(1)} h`;
   }
 
