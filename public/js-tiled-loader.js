@@ -406,6 +406,7 @@ async function main() {
 
   // Sleeping state
   let isSleeping = false;
+  let autoPilot   = false; // 🤖 fully-automated decision-making
   let sleepPendingTicks = 0; // > 0: player visible at sleep tile before overlay starts
   const SLEEP_WALK_TICKS = 3; // seconds the player stands at the bed before the overlay
   const SLEEP_TILE_COL = 2;
@@ -1184,6 +1185,7 @@ async function main() {
       schedule: schedulePanel.getScheduleState(),
       zoom: camera.zoom,
       gameSpeed,
+      autoPilot,
     };
   }
 
@@ -1264,10 +1266,144 @@ async function main() {
     if (state.schedule) schedulePanel.applyScheduleState(state.schedule);
     if (typeof state.zoom === 'number') camera.zoom = state.zoom;
     if (typeof state.gameSpeed === 'number') gameSpeed = state.gameSpeed;
+    if (typeof state.autoPilot === 'boolean') autoPilot = state.autoPilot;
     draw(); drawMenuBar(); drawBottomBar();
     market.update(); realEstate.update(); stats.update(); manageFarm.update();
     eventsPanel.update(getActiveEvents(), getPastEvents(), cropInventory);
     settingsPanel.update();
+  }
+
+  // ── Auto-pilot system ────────────────────────────────────────────────────────────
+  //
+  // Decisions made every game tick when autoPilot === true:
+  //   1. SELL ROUTING   — if a workshop is unlocked for a crop + artisan is
+  //                       unlocked (sold ≥ threshold): hold raw, sell artisan.
+  //                       Otherwise sell raw as normal.
+  //   2. WORKSHOP ASSIGN — all unlocked artisan workshops point to the best
+  //                        crop (highest effective GPS).
+  //   3. CROP SWAP       — every farm zone grows the best available crop.
+  //   4. AUTO-BUY        — whenever we can afford the cheapest locked upgrade
+  //                        (farm zone or artisan workshop), buy it immediately.
+  // ────────────────────────────────────────────────────────────
+
+  /**
+   * Effective gold earned per tile per second for a crop, accounting for the
+   * artisan route if a workshop is active and the product is unlocked.
+   */
+  function cropEffectiveGPS(cropId) {
+    const ct = CROPS[cropId];
+    if (!ct) return 0;
+    const cycleTime = (ct.growthPhaseGIDs.length - 1) * ct.growthTimePerPhase;
+    if (cycleTime <= 0) return 0;
+    const ap = ct.artisanProduct;
+    if (ap) {
+      const hasWorkshop = [...unlockedArtisanZones].some(zn => artisanZoneProductMap.get(zn) === cropId);
+      if (hasWorkshop && (cropStats.get(cropId)?.sold ?? 0) >= ap.unlockCropSold) {
+        // goldValue earned per cropInputCount crops consumed per cycleTime
+        return (ap.goldValue / ap.cropInputCount) / cycleTime;
+      }
+    }
+    return ct.yieldGold / cycleTime;
+  }
+
+  /** Returns the cropId with the highest effective GPS among unlocked crops. */
+  function bestUnlockedCropId() {
+    let bestId = null, bestGPS = -1;
+    for (const id of unlockedCrops) {
+      const gps = cropEffectiveGPS(id);
+      if (gps > bestGPS) { bestGPS = gps; bestId = id; }
+    }
+    return bestId;
+  }
+
+  function runAutoPilot() {
+    if (!autoPilot) return;
+
+    const bestId = bestUnlockedCropId();
+    let dirty = false;
+
+    // 1. SELL ROUTING — set autoSellSet correctly for every crop
+    // Crops whose raw form should be held (has active workshop + artisan unlocked)
+    const holdRawSet = new Set();
+    for (const zn of unlockedArtisanZones) {
+      const cid = artisanZoneProductMap.get(zn);
+      if (!cid) continue;
+      const ap = CROPS[cid]?.artisanProduct;
+      if (ap && (cropStats.get(cid)?.sold ?? 0) >= ap.unlockCropSold) holdRawSet.add(cid);
+    }
+    for (const cropId of Object.keys(CROPS)) {
+      const ap   = CROPS[cropId]?.artisanProduct;
+      const aKey = ap ? `${cropId}_artisan` : null;
+      if (holdRawSet.has(cropId)) {
+        if (autoSellSet.has(cropId))         { autoSellSet.delete(cropId);    dirty = true; }
+        if (aKey && !autoSellSet.has(aKey))  { autoSellSet.add(aKey);         dirty = true; }
+      } else {
+        if (!autoSellSet.has(cropId))        { autoSellSet.add(cropId);       dirty = true; }
+        if (aKey && autoSellSet.has(aKey))   { autoSellSet.delete(aKey);      dirty = true; }
+      }
+    }
+
+    // 2. WORKSHOP ASSIGN — all workshops point to best crop
+    if (bestId) {
+      for (const zn of unlockedArtisanZones) {
+        if (artisanZoneProductMap.get(zn) !== bestId) {
+          artisanZoneProductMap.set(zn, bestId);
+          dirty = true;
+        }
+      }
+    }
+
+    // 3. CROP SWAP — every farm zone grows best crop
+    if (bestId) {
+      for (const [zoneName, entry] of zoneCrops) {
+        if (entry.instance.cropType.id !== bestId) {
+          zoneCrops.set(zoneName, { instance: new CropInstance(CROPS[bestId]), tileCount: entry.tileCount });
+          dirty = true;
+        }
+      }
+    }
+
+    // 4. AUTO-BUY — buy the cheapest available upgrade we can afford
+    const candidates = [];
+    cropZones.forEach(z => {
+      if (!unlockedZones.has(z.name)) {
+        const cost = zoneCostMap.get(z.name) ?? 0;
+        if (cost > 0) candidates.push({ type: 'farm', zone: z, cost });
+      }
+    });
+    for (const [, ws] of workState) {
+      ws.zones.forEach(z => {
+        if (!ws.unlockedSet.has(z.name)) {
+          const cost = ws.costMap.get(z.name) ?? 0;
+          if (cost > 0) candidates.push({ type: ws.act.key, zone: z, cost, ws });
+        }
+      });
+    }
+    candidates.sort((a, b) => a.cost - b.cost);
+    for (const c of candidates) {
+      if (gold.amount >= c.cost) {
+        if (!gold.spend(c.cost)) break;
+        if (c.type === 'farm') {
+          unlockedZones.add(c.zone.name);
+          const cropToPlant = bestId ?? 'strawberry';
+          const tc = Math.round(c.zone.width / 16) * Math.round((c.zone.height || 16) / 16);
+          zoneCrops.set(c.zone.name, { instance: new CropInstance(CROPS[cropToPlant]), tileCount: tc });
+        } else {
+          c.ws.unlockedSet.add(c.zone.name);
+          if (bestId) artisanZoneProductMap.set(c.zone.name, bestId);
+          else assignDefaultArtisanProduct(c.zone.name);
+        }
+        dirty = true;
+        realEstate.update();
+        break; // one purchase per tick
+      }
+    }
+
+    if (dirty) {
+      draw(); drawMenuBar();
+      manageFarm.update();
+      market.update();
+    }
   }
 
   const settingsTabIndex = bottomTabs.findIndex(t => t.full === 'Settings');
@@ -1275,12 +1411,14 @@ async function main() {
   const settingsPanel = initSettingsPanel({
     getGameState,
     applyGameState,
-    getZoom:     () => camera.zoom,
-    setZoom:     (z) => { camera.zoom = z; draw(); },
-    getSpeed:    () => gameSpeed,
-    setSpeed:    (s) => { gameSpeed = s; },
-    isPaused:    () => gamePaused,
-    togglePause: () => { gamePaused = !gamePaused; },
+    getZoom:        () => camera.zoom,
+    setZoom:        (z) => { camera.zoom = z; draw(); },
+    getSpeed:       () => gameSpeed,
+    setSpeed:       (s) => { gameSpeed = s; },
+    isPaused:       () => gamePaused,
+    togglePause:    () => { gamePaused = !gamePaused; },
+    getAutoPilot:   () => autoPilot,
+    setAutoPilot:   (v) => { autoPilot = v; if (v) runAutoPilot(); },
   });
   document.body.appendChild(settingsPanel.panel);
 
@@ -1586,6 +1724,9 @@ async function main() {
       }
     });
     stats.update(); // Always update stats panel
+
+    // Auto-pilot: automated crop/buy/sell decisions
+    runAutoPilot();
 
     // Zone-based work activity production (artisan + future activities)
     // alwaysActive activities run every tick regardless of schedule.

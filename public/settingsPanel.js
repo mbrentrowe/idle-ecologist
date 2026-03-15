@@ -67,6 +67,7 @@ export function initSettingsPanel({
   getZoom, setZoom,
   getSpeed, setSpeed,
   isPaused, togglePause,
+  getAutoPilot, setAutoPilot,
 }) {
   const panel = document.createElement('div');
   Object.assign(panel.style, {
@@ -84,7 +85,19 @@ export function initSettingsPanel({
     fontFamily: 'sans-serif',
     padding:    '20px 24px',
   });
+  // ── Auto-pilot ────────────────────────────────────────────────────────────
+  const apDesc = document.createElement('div');
+  apDesc.textContent = '🤖 Auto-pilot: automatically buys upgrades, grows the most profitable crop, routes output through artisan workshops, and adjusts sell settings.';
+  Object.assign(apDesc.style, {
+    color: '#888', font: '11px sans-serif', marginBottom: '8px', lineHeight: '1.5',
+  });
+  panel.appendChild(apDesc);
 
+  const apBtn = makeBtn('🤖 Auto-pilot: OFF', () => {
+    setAutoPilot(!getAutoPilot());
+    update();
+  }, { minWidth: '180px' });
+  panel.appendChild(makeRow(apBtn));
   // ── Save / Clear ────────────────────────────────────────────────────────
   const saveBtn = makeBtn('💾 Force Save', () => {
     saveGame(getGameState());
@@ -137,6 +150,13 @@ export function initSettingsPanel({
   panel.appendChild(makeRow(makeLabel('Speed:'), rewindBtn, speedDisplay, pauseBtn, ffBtn));
 
   function update() {
+    // Auto-pilot
+    const apOn = getAutoPilot();
+    apBtn.textContent = `🤖 Auto-pilot: ${apOn ? 'ON' : 'OFF'}`;
+    apBtn.style.background   = apOn ? '#1a3a1a' : '#2a2a2a';
+    apBtn.style.color        = apOn ? '#7dff7d' : '#ffd700';
+    apBtn.style.borderColor  = apOn ? '#7dff7d' : '#ffd700';
+
     // Zoom
     const zoom = getZoom();
     const zoomIdx = ZOOM_STEPS.indexOf(zoom);
