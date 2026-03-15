@@ -1389,8 +1389,9 @@ async function main() {
   // ────────────────────────────────────────────────────────────
 
   /**
-   * Effective gold earned per tile per second for a crop, accounting for the
-   * artisan route if a workshop is active and the product is unlocked.
+   * Effective GPS for a crop right now — used for sell-routing decisions.
+   * Returns artisan GPS if a workshop is active and the product is already unlocked,
+   * otherwise returns raw harvest GPS.
    */
   function cropEffectiveGPS(cropId) {
     const ct = CROPS[cropId];
@@ -1408,13 +1409,65 @@ async function main() {
     return ct.yieldGold / cycleTime;
   }
 
-  /** Returns the cropId with the highest effective GPS among actually-unlocked crops. */
+  /**
+   * Projected GPS for a crop over a 600-game-second planning horizon.
+   *
+   * If the crop has an artisan product that is NOT yet unlocked but a workshop
+   * is available, models expected GPS as a weighted average:
+   *   • earn rawGPS while grinding toward the sold-count unlock threshold
+   *   • earn artisanGPS for the rest of the horizon once unlocked
+   *
+   * This lets auto-pilot prefer a crop whose artisan unlock is within reach
+   * even when another crop has slightly better raw GPS right now.
+   */
+  function projectedCropGPS(cropId) {
+    const ct = CROPS[cropId];
+    if (!ct) return 0;
+    const cycleTime = (ct.growthPhaseGIDs.length - 1) * ct.growthTimePerPhase;
+    if (cycleTime <= 0) return 0;
+    const rawGPS = ct.yieldGold / cycleTime;
+    const ap = ct.artisanProduct;
+    if (!ap) return rawGPS;
+
+    // No workshop → artisan won't run even after unlock; fall back to raw GPS
+    const hasWorkshop = [...unlockedArtisanZones].some(zn => artisanZoneProductMap.get(zn) === cropId);
+    if (!hasWorkshop) return rawGPS;
+
+    const soldCount = cropStats.get(cropId)?.sold ?? 0;
+    const apGPS = (ap.goldValue / ap.cropInputCount) / cycleTime;
+
+    // Already unlocked — artisan is producing now
+    if (soldCount >= ap.unlockCropSold) return apGPS;
+
+    // --- Project forward ---
+    // Estimate sold-per-game-second assuming all unlocked farm zones switch to this crop.
+    const unlockedFarmZones = cropZones.filter(z => unlockedZones.has(z.name));
+    const totalTiles = unlockedFarmZones.reduce((sum, z) => {
+      const existing = zoneCrops.get(z.name);
+      const tc = existing ? existing.tileCount : Math.max(1, Math.round((z.width * z.height) / 256));
+      return sum + tc;
+    }, 0);
+    const soldPerGameSec = totalTiles / cycleTime;
+    if (soldPerGameSec <= 0) return rawGPS;
+
+    const remaining      = ap.unlockCropSold - soldCount;
+    const unlockTimeSecs = remaining / soldPerGameSec;
+
+    // If the unlock is more than 10 game-minutes away it's too speculative — use raw GPS
+    const HORIZON = 600; // game-seconds
+    if (unlockTimeSecs >= HORIZON) return rawGPS;
+
+    // Weighted average: grind phase earns rawGPS, post-unlock earns artisanGPS
+    return (rawGPS * unlockTimeSecs + apGPS * (HORIZON - unlockTimeSecs)) / HORIZON;
+  }
+
+  /** Returns the cropId with the highest projected GPS among actually-unlocked crops. */
   function bestUnlockedCropId() {
     const lifetimeGold = Array.from(cropStats.values()).reduce((s, v) => s + v.lifetimeSales, 0);
     let bestId = null, bestGPS = -1;
     for (const [id, ct] of Object.entries(CROPS)) {
       if (!ct.isUnlocked(cropStats, lifetimeGold)) continue;
-      const gps = cropEffectiveGPS(id);
+      const gps = projectedCropGPS(id);
       if (gps > bestGPS) { bestGPS = gps; bestId = id; }
     }
     return bestId;
