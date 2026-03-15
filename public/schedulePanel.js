@@ -4,7 +4,7 @@
 const ACTIVITIES = [
   { key: 'farming',     label: 'Farming',     icon: '🌾', color: '#6dbd5a', description: 'Crops only grow during farming hours.' },
   { key: 'socializing', label: 'Socializing', icon: '💬', color: '#5ab5bd', description: 'Unlocks NPC events. (coming soon)' },
-  { key: 'sleeping',    label: 'Sleeping',    icon: '😴', color: '#9a7fc7', description: 'Required for energy. (coming soon)' },
+  { key: 'sleeping',    label: 'Sleeping',    icon: '😴', color: '#9a7fc7', description: 'Rest and recover.' },
 ];
 
 const TOTAL_HOURS = 24;

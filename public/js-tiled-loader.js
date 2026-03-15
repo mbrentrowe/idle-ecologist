@@ -25,17 +25,10 @@ const ctx = canvas.getContext('2d');
 let totalFarmingHours     = 0;
 let totalSocializingHours = 0;
 let totalSleepingHours    = 0;
-let energy                = 100; // 0–100 %
 
 const DAY_REAL_SECS = 240; // 4 real minutes = 1 in-game day
 const SOCIAL_REAL_SECS_PER_HOUR = DAY_REAL_SECS / 24;
 
-// Energy rates (% per in-game hour)
-const ENERGY_DRAIN_FARMING     = 5.0;
-const ENERGY_DRAIN_SOCIALIZING = 2.5;
-const ENERGY_RESTORE_SLEEPING  = 7.5;
-const ENERGY_LOW_THRESHOLD     = 25;  // below this, activities run at half speed
-const ENERGY_LOW_MULTIPLIER    = 0.5;
 
 function shortNumber(n) {
   if (n >= 1e6) return (n / 1e6).toFixed(n % 1e6 === 0 ? 0 : 1) + 'M';
@@ -502,70 +495,28 @@ async function main() {
       }
     }
 
-    // Draws gold icon + amount + energy bar; returns right edge x
-    function drawGoldAndEnergy(cy, compactBar) {
+    // Draws gold icon + amount; returns right edge x
+    function drawGold(cy) {
       menuBarCtx.imageSmoothingEnabled = false;
       const goldId = 1159;
       menuBarCtx.drawImage(tilesetImage,
         (goldId % columns) * tileSize, Math.floor(goldId / columns) * tileSize, tileSize, tileSize,
         pad, cy - tileSize / 2, tileSize, tileSize);
-
-      menuBarCtx.font = 'bold 14px sans-serif';
-      menuBarCtx.fillStyle = '#ffd700';
-      menuBarCtx.textAlign = 'left';
-      menuBarCtx.textBaseline = 'middle';
+      menuBarCtx.font = "bold 14px sans-serif";
+      menuBarCtx.fillStyle = "#ffd700";
+      menuBarCtx.textAlign = "left";
+      menuBarCtx.textBaseline = "middle";
       const goldText  = gold.getFormatted();
       const goldTextX = pad + tileSize + 4;
       menuBarCtx.fillText(goldText, goldTextX, cy);
-      let rightEdge = goldTextX + menuBarCtx.measureText(goldText).width + 6;
-      drawDivider(rightEdge + 2, cy - 14, cy + 14);
-
-      const tileD    = compactBar ? 22 : Math.round(mh * 0.6);
-      const midCount = compactBar ? 2  : 3;
-      const totalBarW = tileD * (2 + midCount);
-      const barX      = rightEdge + 6;
-      const barY      = Math.round(cy - tileD / 2);
-      const energyPct = energy / 100;
-
-      function drawBarTile(gid, dx) {
-        const id = gid - 1;
-        menuBarCtx.drawImage(tilesetImage,
-          (id % columns) * tileSize, Math.floor(id / columns) * tileSize, tileSize, tileSize,
-          dx, barY, tileD, tileD);
-      }
-
-      drawBarTile(2079, barX);
-      for (let m = 0; m < midCount; m++) drawBarTile(2080, barX + tileD * (1 + m));
-      drawBarTile(2081, barX + tileD * (1 + midCount));
-
-      const clipBarW = Math.round(totalBarW * energyPct);
-      if (clipBarW > 0) {
-        menuBarCtx.save();
-        menuBarCtx.beginPath();
-        menuBarCtx.rect(barX, barY, clipBarW, tileD);
-        menuBarCtx.clip();
-        drawBarTile(2070, barX);
-        for (let m = 0; m < midCount; m++) drawBarTile(2071, barX + tileD * (1 + m));
-        drawBarTile(2072, barX + tileD * (1 + midCount));
-        menuBarCtx.restore();
-      }
-
-      const labelFontSize = compactBar ? 11 : Math.max(9, Math.round(mh * 0.27));
-      menuBarCtx.font = 'bold ' + labelFontSize + 'px sans-serif';
-      menuBarCtx.fillStyle = energy < ENERGY_LOW_THRESHOLD ? '#ff8888' : '#d0d0d0';
-      menuBarCtx.textAlign = 'left';
-      menuBarCtx.textBaseline = 'middle';
-      const energyLabel = Math.round(energy) + '%';
-      menuBarCtx.fillText(energyLabel, barX + totalBarW + 4, cy);
-      return barX + totalBarW + 4 + menuBarCtx.measureText(energyLabel).width + pad;
+      return goldTextX + menuBarCtx.measureText(goldText).width + 6;
     }
-
     // MOBILE EXPANDED: 2-row layout
     if (isMobile) {
       const ROW1 = 24;
       const ROW2 = 64;
 
-      // Measure date/time FIRST so we can clip gold+energy away from it
+      // Measure date/time FIRST so we can clip gold section away from date/time
       const dateStr      = calendar.getDateString();
       const timeStr      = calendar.getTimeOfDay();
       const dateTimeText = dateStr + (typeof timeStr !== "undefined" ? "   " + timeStr : "");
@@ -573,14 +524,14 @@ async function main() {
       const dtW = menuBarCtx.measureText(dateTimeText).width;
       const dtLeft = mw - pad - dtW;
 
-      // Draw gold+energy clipped to left of date/time section
+      // Draw gold clipped to left of date/time section
       menuBarCtx.save();
       menuBarCtx.beginPath();
       menuBarCtx.rect(0, 0, dtLeft - pad * 2, 48);
       menuBarCtx.clip();
-      const afterEnergy = drawGoldAndEnergy(ROW1, true);
+      const afterGold = drawGold(ROW1);
       menuBarCtx.restore();
-      drawDivider(Math.min(afterEnergy, dtLeft - pad * 2), 4, 44);
+      drawDivider(Math.min(afterGold, dtLeft - pad * 2), 4, 44);
 
       // Date/time (right of row 1)
       menuBarCtx.font = "bold 12px sans-serif";
@@ -649,8 +600,8 @@ async function main() {
     }
     // DESKTOP: single-row layout
     const cy = mh / 2;
-    const afterEnergy = drawGoldAndEnergy(cy, false);
-    drawDivider(afterEnergy + 2);
+    const afterGold = drawGold(cy);
+    drawDivider(afterGold + 2);
 
     menuBarCtx.font = 'bold 13px sans-serif';
     const dateStr      = calendar.getDateString();
@@ -661,7 +612,7 @@ async function main() {
     drawDivider(dateSectionLeft - 8);
 
     if (nextCrop && nextIconGID) {
-      const clipLeft  = afterEnergy + 16;
+      const clipLeft  = afterGold + 16;
       const clipRight = dateSectionLeft - 14;
       const clipW     = clipRight - clipLeft;
       if (clipW > 32) {
@@ -992,7 +943,6 @@ async function main() {
   function getGameState() {
     return {
       gold: gold.amount,
-      energy,
       totalSocializingHours,
       totalFarmingHours,
       totalSleepingHours,
@@ -1024,7 +974,6 @@ async function main() {
   function applyGameState(state) {
     if (!state) return;
     if (typeof state.gold === 'number') gold.amount = state.gold;
-    if (typeof state.energy === 'number') energy = Math.max(0, Math.min(100, state.energy));
     if (typeof state.totalSocializingHours === 'number') totalSocializingHours = state.totalSocializingHours;
     if (typeof state.totalFarmingHours    === 'number') totalFarmingHours    = state.totalFarmingHours;
     if (typeof state.totalSleepingHours   === 'number') totalSleepingHours   = state.totalSleepingHours;
@@ -1167,13 +1116,6 @@ async function main() {
     if (farmingActive)     totalFarmingHours     += hoursPerTick;
     if (sleepingActive)    totalSleepingHours    += hoursPerTick;
 
-    // Energy: drain while active, restore while sleeping
-    if (farmingActive)     energy -= ENERGY_DRAIN_FARMING     * hoursPerTick;
-    if (socializingActive) energy -= ENERGY_DRAIN_SOCIALIZING * hoursPerTick;
-    if (sleepingActive)    energy += ENERGY_RESTORE_SLEEPING  * hoursPerTick;
-    energy = Math.max(0, Math.min(100, energy));
-    // Below 25% energy, activities run at half speed
-    const activityRate = energy < ENERGY_LOW_THRESHOLD ? ENERGY_LOW_MULTIPLIER : 1.0;
 
     // Sleeping state transitions
     if (sleepingActive && !isSleeping && sleepPendingTicks === 0) {
@@ -1208,7 +1150,7 @@ async function main() {
     }
 
     zoneCrops.forEach(({ instance, tileCount }) => {
-      if (farmingActive) instance.tick(gameSpeed * activityRate);
+      if (farmingActive) instance.tick(gameSpeed);
       if (instance.isFullyGrown) {
         const id = instance.cropType.id;
         const s  = cropStats.get(id);
@@ -1233,9 +1175,9 @@ async function main() {
           // Just entered socializing block � reset timer so player gets a full hour at current point
           socialTravelTimer = 0;
         }
-        updatePlayerSocialTravel(gameSpeed * activityRate);
+        updatePlayerSocialTravel(gameSpeed);
       } else if (farmingActive) {
-        updatePlayerZoneTravel(gameSpeed * activityRate);
+        updatePlayerZoneTravel(gameSpeed);
       }
     }
     _wasSocializing = socializingActive;
@@ -1249,4 +1191,3 @@ main();
 window.getTotalSocializingHours = () => typeof totalSocializingHours !== 'undefined' ? totalSocializingHours : 0;
 window.getTotalFarmingHours     = () => typeof totalFarmingHours     !== 'undefined' ? totalFarmingHours     : 0;
 window.getTotalSleepingHours    = () => typeof totalSleepingHours    !== 'undefined' ? totalSleepingHours    : 0;
-window.getEnergy                = () => typeof energy                !== 'undefined' ? energy                : 100;
