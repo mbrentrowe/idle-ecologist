@@ -570,7 +570,32 @@ async function main() {
       }
     }
 
-    // Draws gold icon + amount; returns right edge x
+    // Draws gold icon + amount + GPS; returns right edge x
+    function computeGoldPerSecond() {
+      let gps = 0;
+      const act = schedulePanel.isArtisanTime(calendarAccum) && hasArtisanWork() ? 'artisan'
+                : schedulePanel.isFarmingTime(calendarAccum)                     ? 'farming'
+                : null;
+      if (act === 'farming') {
+        zoneCrops.forEach(({ instance, tileCount }) => {
+          const ct = instance.cropType;
+          const cycleTime = (ct.growthPhaseGIDs.length - 1) * ct.growthTimePerPhase;
+          if (cycleTime > 0 && autoSellSet.has(ct.id)) gps += (tileCount * ct.yieldGold * gameSpeed) / cycleTime;
+        });
+      } else if (act === 'artisan') {
+        getUnlockedArtisanZoneList().forEach(zone => {
+          const cropId = artisanZoneProductMap.get(zone.name);
+          if (!cropId) return;
+          const ct = CROPS[cropId];
+          if (!ct?.artisanProduct) return;
+          const ap = ct.artisanProduct;
+          if ((cropStats.get(cropId)?.sold ?? 0) < ap.unlockCropSold) return;
+          if (autoSellSet.has(`${cropId}_artisan`)) gps += ap.goldValue * gameSpeed / ARTISAN_INTERVAL_SECS;
+        });
+      }
+      return gps;
+    }
+
     function drawGold(cy) {
       menuBarCtx.imageSmoothingEnabled = false;
       const goldId = 1159;
@@ -584,7 +609,22 @@ async function main() {
       const goldText  = gold.getFormatted();
       const goldTextX = pad + tileSize + 4;
       menuBarCtx.fillText(goldText, goldTextX, cy);
-      return goldTextX + menuBarCtx.measureText(goldText).width + 6;
+      let rightEdge = goldTextX + menuBarCtx.measureText(goldText).width + 4;
+
+      // GPS label
+      const gps = computeGoldPerSecond();
+      if (gps > 0) {
+        const gpsText = `+${shortNumber(Math.round(gps))}/s`;
+        menuBarCtx.font = "11px sans-serif";
+        menuBarCtx.fillStyle = "rgba(180,230,160,0.85)";
+        menuBarCtx.textAlign = "left";
+        menuBarCtx.textBaseline = "middle";
+        menuBarCtx.fillText(gpsText, rightEdge, cy);
+        rightEdge += menuBarCtx.measureText(gpsText).width + 6;
+      } else {
+        rightEdge += 2;
+      }
+      return rightEdge;
     }
     // MOBILE EXPANDED: 2-row layout
     if (isMobile) {
