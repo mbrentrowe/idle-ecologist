@@ -802,6 +802,47 @@ async function main() {
       }
     });
 
+    // Draw artisan product icons above active artisan zones during artisan hours
+    if (isArtisanTime && isArtisanTime()) {
+      const artisanCropList = Object.values(CROPS).filter(ct => ct.artisanProduct);
+      const unlockedArtisanList = artisanZones.filter(z => unlockedArtisanZones.has(z.name));
+      if (artisanCropList.length > 0 && unlockedArtisanList.length > 0) {
+        const iconSize = 14;
+        const ACOLS   = 125;
+        unlockedArtisanList.forEach((zone, idx) => {
+          const ap  = artisanCropList[idx % artisanCropList.length].artisanProduct;
+          const cx  = Math.round(zone.x + (zone.width  || 0) / 2);
+          const cy  = Math.round(zone.y + (zone.height || 0) / 2);
+          const bcy = cy - iconSize - 8;  // bubble centre Y (above zone)
+          const r   = iconSize / 2 + 3;
+
+          offCtx.save();
+          // Amber bubble background
+          offCtx.globalAlpha = 0.88;
+          offCtx.fillStyle   = 'rgba(25, 15, 5, 0.75)';
+          offCtx.beginPath();
+          offCtx.arc(cx, bcy, r, 0, Math.PI * 2);
+          offCtx.fill();
+          offCtx.strokeStyle = '#c47a3a';
+          offCtx.lineWidth   = 1.5;
+          offCtx.stroke();
+          offCtx.globalAlpha = 1.0;
+
+          // Artisan product tile icon
+          if (tilesetImage && ap.iconGID) {
+            const tid = ap.iconGID - 1;
+            offCtx.imageSmoothingEnabled = false;
+            offCtx.drawImage(
+              tilesetImage,
+              (tid % ACOLS) * 16, Math.floor(tid / ACOLS) * 16, 16, 16,
+              cx - iconSize / 2, bcy - iconSize / 2, iconSize, iconSize
+            );
+          }
+          offCtx.restore();
+        });
+      }
+    }
+
     // Camera/zoom
     ctx.save();
     ctx.imageSmoothingEnabled = false;
