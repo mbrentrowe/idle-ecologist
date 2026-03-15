@@ -18,10 +18,11 @@ function gidCoords(gid) {
  * @param {Map<string,number>}      opts.cropInventory  - cropId → count (shared reference)
  * @param {Map<string,number>}      opts.artisanInventory - artisanKey → count (shared reference)
  * @param {Set<string>}             opts.autoSellSet    - cropIds / artisanKeys with auto-sell on (shared reference)
+ * @param {Map<string,{crafted,sold,lifetimeSales}>} opts.artisanStats - artisan historical stats (shared reference)
  * @param {Gold}                    opts.gold           - Gold instance
  * @returns {{ show: Function, hide: Function, update: Function }}
  */
-export function initMarketPanel({ tilesetImage, CROPS, cropInventory, artisanInventory, autoSellSet, gold, cropStats }) {
+export function initMarketPanel({ tilesetImage, CROPS, cropInventory, artisanInventory, artisanStats, autoSellSet, gold, cropStats }) {
 
   // ── Panel container ──────────────────────────────────────────────────────
   const panel = document.createElement('div');
@@ -264,6 +265,10 @@ export function initMarketPanel({ tilesetImage, CROPS, cropInventory, artisanInv
         if (qty <= 0) return;
         artisanInventory.set(artisanKey, have - qty);
         gold.add(qty * ap.goldValue);
+        if (artisanStats) {
+          const s = artisanStats.get(artisanKey);
+          if (s) { s.sold += qty; s.lifetimeSales += qty * ap.goldValue; }
+        }
         refreshArtisanRow(cropType.id);
       });
       sellGroup.appendChild(btn);

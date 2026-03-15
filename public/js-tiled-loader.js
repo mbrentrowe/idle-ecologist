@@ -248,6 +248,11 @@ async function main() {
   // Lifetime stats: cropId → { grown, sold, lifetimeSales }
   const cropStats = new Map();
   Object.keys(CROPS).forEach(id => cropStats.set(id, { grown: 0, sold: 0, lifetimeSales: 0 }));
+  // Artisan stats: artisanKey → { crafted, sold, lifetimeSales }
+  const artisanStats = new Map();
+  Object.values(CROPS).forEach(ct => {
+    if (ct.artisanProduct) artisanStats.set(`${ct.id}_artisan`, { crafted: 0, sold: 0, lifetimeSales: 0 });
+  });
 
   const player = {
     x: startX, y: startY,
@@ -912,11 +917,11 @@ async function main() {
 
   // Market panel
   const marketTabIndex = bottomTabs.findIndex(t => t.full === 'Market');
-  const market = initMarketPanel({ tilesetImage, CROPS, cropInventory, artisanInventory, autoSellSet, gold, cropStats });
+  const market = initMarketPanel({ tilesetImage, CROPS, cropInventory, artisanInventory, artisanStats, autoSellSet, gold, cropStats });
 
   // Stats panel
   const statsTabIndex = bottomTabs.findIndex(t => t.full === 'Stats');
-  const stats = initStatsPanel({ CROPS, cropStats, tilesetImage, cropInventory, artisanInventory });
+  const stats = initStatsPanel({ CROPS, cropStats, tilesetImage, cropInventory, artisanInventory, artisanStats });
 
   // Manage Farm panel
   const manageFarmTabIndex = bottomTabs.findIndex(t => t.full === 'Manage Farm');
@@ -1003,6 +1008,7 @@ async function main() {
       },
       cropInventory: Object.fromEntries(cropInventory),
       artisanInventory: Object.fromEntries(artisanInventory),
+      artisanStats: Object.fromEntries(Array.from(artisanStats.entries()).map(([k, s]) => [k, { ...s }])),
       autoSellSet: Array.from(autoSellSet),
       unlockedZones: Array.from(unlockedZones),
       unlockedArtisanZones: Array.from(unlockedArtisanZones),
@@ -1045,6 +1051,11 @@ async function main() {
     if (state.artisanInventory) {
       artisanInventory.clear();
       Object.entries(state.artisanInventory).forEach(([key, count]) => artisanInventory.set(key, count));
+    }
+    if (state.artisanStats) {
+      Object.entries(state.artisanStats).forEach(([key, s]) => {
+        if (artisanStats.has(key)) Object.assign(artisanStats.get(key), s);
+      });
     }
     if (state.autoSellSet) {
       autoSellSet.clear();
@@ -1246,8 +1257,11 @@ async function main() {
           if (have < ap.cropInputCount) return;
           cropInventory.set(cropType.id, have - ap.cropInputCount);
           const artisanKey = `${cropType.id}_artisan`;
+          const astat = artisanStats.get(artisanKey);
+          if (astat) astat.crafted += 1;
           if (autoSellSet.has(artisanKey)) {
             gold.add(ap.goldValue);
+            if (astat) { astat.sold += 1; astat.lifetimeSales += ap.goldValue; }
           } else {
             artisanInventory.set(artisanKey, (artisanInventory.get(artisanKey) || 0) + 1);
           }

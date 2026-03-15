@@ -7,9 +7,10 @@
  * @param {Map<string,object>}  opts.cropStats     - Shared stats map: cropId → { grown, sold, lifetimeSales }
  * @param {Map<string,number>}  opts.cropInventory - Live inventory map: cropId → count in hand
  * @param {Map<string,number>}  opts.artisanInventory - Live artisan inventory: artisanKey → count
+ * @param {Map<string,{crafted,sold,lifetimeSales}>} opts.artisanStats - Artisan historical stats
  * @returns {{ show: Function, hide: Function, update: Function }}
  */
-export function initStatsPanel({ CROPS, cropStats, tilesetImage, cropInventory, artisanInventory }) {
+export function initStatsPanel({ CROPS, cropStats, tilesetImage, cropInventory, artisanInventory, artisanStats }) {
 
   function shortNumber(n) {
     if (n >= 1e6) return (n / 1e6).toFixed(n % 1e6 === 0 ? 0 : 1) + 'M';
@@ -200,6 +201,121 @@ export function initStatsPanel({ CROPS, cropStats, tilesetImage, cropInventory, 
   totalRow.appendChild(totalPriceEl);
   totalRow.appendChild(totalSalesEl);
   statsView.appendChild(totalRow);
+
+  // ── ARTISAN GOODS section in Stats sub-tab ─────────────────────────────
+  const artisanStatsSecHeader = document.createElement('div');
+  Object.assign(artisanStatsSecHeader.style, {
+    padding:      '6px 14px',
+    font:         'bold 12px sans-serif',
+    color:        '#c47a3a',
+    borderTop:    '1px solid rgba(196,122,58,0.4)',
+    borderBottom: '1px solid rgba(196,122,58,0.3)',
+    letterSpacing:'1.5px',
+    marginTop:    '4px',
+  });
+  artisanStatsSecHeader.textContent = 'ARTISAN GOODS';
+  statsView.appendChild(artisanStatsSecHeader);
+
+  // Artisan stats column headers
+  const artisanStatsColHeader = document.createElement('div');
+  Object.assign(artisanStatsColHeader.style, {
+    display:             'grid',
+    gridTemplateColumns: '1fr 1fr 1fr 1fr 1fr',
+    padding:             '5px 14px',
+    borderBottom:        '1px solid rgba(196,122,58,0.25)',
+    gap:                 '8px',
+  });
+  ['Product', 'Crafted', 'Sold', 'Price / unit', 'Lifetime Sales'].forEach((label, i) => {
+    const el = document.createElement('span');
+    el.textContent = label;
+    Object.assign(el.style, {
+      color:         '#c47a3a',
+      font:          'bold 11px sans-serif',
+      textAlign:     i === 0 ? 'left' : 'right',
+      letterSpacing: '0.5px',
+    });
+    artisanStatsColHeader.appendChild(el);
+  });
+  statsView.appendChild(artisanStatsColHeader);
+
+  // Artisan stats rows
+  const artisanRowRefs = {}; // cropId → { craftedEl, soldEl, salesEl }
+  Object.values(CROPS).forEach(cropType => {
+    const ap = cropType.artisanProduct;
+    if (!ap) return;
+    const artisanKey = `${cropType.id}_artisan`;
+
+    const row = document.createElement('div');
+    Object.assign(row.style, {
+      display:             'grid',
+      gridTemplateColumns: '1fr 1fr 1fr 1fr 1fr',
+      padding:             '6px 14px',
+      gap:                 '8px',
+      borderBottom:        '1px solid rgba(255,255,255,0.05)',
+      alignItems:          'center',
+    });
+
+    // Icon
+    const iconCanvas = document.createElement('canvas');
+    iconCanvas.width = 22; iconCanvas.height = 22;
+    Object.assign(iconCanvas.style, {
+      width: '22px', height: '22px', imageRendering: 'pixelated',
+      verticalAlign: 'middle', marginRight: '4px', flexShrink: '0',
+    });
+    if (tilesetImage && ap.iconGID) {
+      const ctx = iconCanvas.getContext('2d');
+      ctx.imageSmoothingEnabled = false;
+      const TILESIZE = 16, TILESET_COLS = 125;
+      const id = ap.iconGID - 1;
+      ctx.drawImage(tilesetImage,
+        (id % TILESET_COLS) * TILESIZE, Math.floor(id / TILESET_COLS) * TILESIZE,
+        TILESIZE, TILESIZE, 0, 0, 22, 22);
+    }
+    const nameEl = document.createElement('span');
+    nameEl.textContent = ap.name;
+    Object.assign(nameEl.style, { color: '#e8c89a', font: 'bold 13px sans-serif', marginLeft: '2px' });
+    const nameCell = document.createElement('span');
+    nameCell.style.display = 'flex'; nameCell.style.alignItems = 'center';
+    nameCell.appendChild(iconCanvas); nameCell.appendChild(nameEl);
+
+    const craftedEl = makeStatCell('0');
+    const soldEl    = makeStatCell('0');
+    const priceEl   = makeStatCell(`🪙 ${shortNumber(ap.goldValue)}`);
+    const salesEl   = makeStatCell('0');
+
+    row.appendChild(nameCell);
+    row.appendChild(craftedEl);
+    row.appendChild(soldEl);
+    row.appendChild(priceEl);
+    row.appendChild(salesEl);
+    statsView.appendChild(row);
+    artisanRowRefs[artisanKey] = { craftedEl, soldEl, salesEl };
+  });
+
+  // Artisan stats total row
+  const artisanStatsTotalRow = document.createElement('div');
+  Object.assign(artisanStatsTotalRow.style, {
+    display:             'grid',
+    gridTemplateColumns: '1fr 1fr 1fr 1fr 1fr',
+    padding:             '7px 14px',
+    gap:                 '8px',
+    borderTop:           '2px solid rgba(196,122,58,0.35)',
+    alignItems:          'center',
+    background:          'rgba(196,122,58,0.06)',
+  });
+  const artisanStatsTotalLabelEl  = document.createElement('span');
+  artisanStatsTotalLabelEl.textContent = 'TOTAL';
+  Object.assign(artisanStatsTotalLabelEl.style, { color: '#c47a3a', font: 'bold 12px sans-serif', letterSpacing: '1px' });
+  const artisanStatsTotCraftedEl = makeStatCell('0', true);
+  const artisanStatsTotSoldEl    = makeStatCell('0', true);
+  const artisanStatsTotPriceEl   = makeStatCell('—', true);
+  const artisanStatsTotSalesEl   = makeStatCell('0', true);
+  artisanStatsTotalRow.appendChild(artisanStatsTotalLabelEl);
+  artisanStatsTotalRow.appendChild(artisanStatsTotCraftedEl);
+  artisanStatsTotalRow.appendChild(artisanStatsTotSoldEl);
+  artisanStatsTotalRow.appendChild(artisanStatsTotPriceEl);
+  artisanStatsTotalRow.appendChild(artisanStatsTotSalesEl);
+  statsView.appendChild(artisanStatsTotalRow);
 
   document.body.appendChild(panel);
 
@@ -450,6 +566,24 @@ export function initStatsPanel({ CROPS, cropStats, tilesetImage, cropInventory, 
     totalGrownEl.textContent  = shortNumber(totGrown);
     totalSoldEl.textContent   = shortNumber(totSold);
     totalSalesEl.textContent  = `🪙 ${shortNumber(totSales)}`;
+
+    // Artisan stats rows
+    if (artisanStats) {
+      let totCrafted = 0, totArtSold = 0, totArtSales = 0;
+      artisanStats.forEach((s, artisanKey) => {
+        const refs = artisanRowRefs[artisanKey];
+        if (!refs) return;
+        refs.craftedEl.textContent = shortNumber(s.crafted);
+        refs.soldEl.textContent    = shortNumber(s.sold);
+        refs.salesEl.textContent   = `🪙 ${shortNumber(s.lifetimeSales)}`;
+        totCrafted += s.crafted;
+        totArtSold += s.sold;
+        totArtSales += s.lifetimeSales;
+      });
+      artisanStatsTotCraftedEl.textContent = shortNumber(totCrafted);
+      artisanStatsTotSoldEl.textContent    = shortNumber(totArtSold);
+      artisanStatsTotSalesEl.textContent   = `🪙 ${shortNumber(totArtSales)}`;
+    }
   }
 
   // ── Time Spent Section ───────────────────────────────────────────────────
