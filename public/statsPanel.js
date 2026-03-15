@@ -6,9 +6,10 @@
  * @param {object}              opts.CROPS         - CROPS dict from crops.js
  * @param {Map<string,object>}  opts.cropStats     - Shared stats map: cropId → { grown, sold, lifetimeSales }
  * @param {Map<string,number>}  opts.cropInventory - Live inventory map: cropId → count in hand
+ * @param {Map<string,number>}  opts.artisanInventory - Live artisan inventory: artisanKey → count
  * @returns {{ show: Function, hide: Function, update: Function }}
  */
-export function initStatsPanel({ CROPS, cropStats, tilesetImage, cropInventory }) {
+export function initStatsPanel({ CROPS, cropStats, tilesetImage, cropInventory, artisanInventory }) {
 
   function shortNumber(n) {
     if (n >= 1e6) return (n / 1e6).toFixed(n % 1e6 === 0 ? 0 : 1) + 'M';
@@ -285,6 +286,97 @@ export function initStatsPanel({ CROPS, cropStats, tilesetImage, cropInventory }
   stockTotalRow.appendChild(stockTotalValueEl);
   stockView.appendChild(stockTotalRow);
 
+  // ── Artisan Goods in Stock sub-tab ─────────────────────────────────
+  const artisanStockHeaderSec = document.createElement('div');
+  Object.assign(artisanStockHeaderSec.style, {
+    padding: '6px 14px',
+    font: 'bold 12px sans-serif',
+    color: '#c47a3a',
+    borderTop: '1px solid rgba(196,122,58,0.4)',
+    borderBottom: '1px solid rgba(196,122,58,0.3)',
+    letterSpacing: '1.5px',
+    marginTop: '4px',
+  });
+  artisanStockHeaderSec.textContent = 'ARTISAN GOODS';
+  stockView.appendChild(artisanStockHeaderSec);
+
+  // Artisan stock column header
+  const artisanStockColHeader = document.createElement('div');
+  Object.assign(artisanStockColHeader.style, {
+    display: 'grid', gridTemplateColumns: '1fr 1fr 1fr',
+    padding: '5px 14px', borderBottom: '1px solid rgba(196,122,58,0.25)', gap: '8px',
+  });
+  ['Product', 'In Stock', 'Est. Value'].forEach((label, i) => {
+    const el = document.createElement('span');
+    el.textContent = label;
+    Object.assign(el.style, {
+      color: '#c47a3a', font: 'bold 11px sans-serif',
+      textAlign: i === 0 ? 'left' : 'right', letterSpacing: '0.5px',
+    });
+    artisanStockColHeader.appendChild(el);
+  });
+  stockView.appendChild(artisanStockColHeader);
+
+  const artisanStockRefs = {}; // cropId → { stockEl, valueEl }
+  Object.values(CROPS).forEach(cropType => {
+    const ap = cropType.artisanProduct;
+    if (!ap) return;
+    const artisanKey = `${cropType.id}_artisan`;
+
+    const row = document.createElement('div');
+    Object.assign(row.style, {
+      display: 'grid', gridTemplateColumns: '1fr 1fr 1fr',
+      padding: '6px 14px', gap: '8px',
+      borderBottom: '1px solid rgba(255,255,255,0.05)', alignItems: 'center',
+    });
+
+    const iconCanvas = document.createElement('canvas');
+    iconCanvas.width = 22; iconCanvas.height = 22;
+    Object.assign(iconCanvas.style, {
+      width: '22px', height: '22px', imageRendering: 'pixelated',
+      verticalAlign: 'middle', marginRight: '4px', flexShrink: '0',
+    });
+    if (tilesetImage && ap.iconGID) {
+      const ctx = iconCanvas.getContext('2d');
+      ctx.imageSmoothingEnabled = false;
+      const TILESIZE = 16, TILESET_COLS = 125;
+      const id = ap.iconGID - 1;
+      ctx.drawImage(tilesetImage,
+        (id % TILESET_COLS) * TILESIZE, Math.floor(id / TILESET_COLS) * TILESIZE,
+        TILESIZE, TILESIZE, 0, 0, 22, 22);
+    }
+    const nameEl = document.createElement('span');
+    nameEl.textContent = ap.name;
+    Object.assign(nameEl.style, { color: '#e8c89a', font: 'bold 13px sans-serif', marginLeft: '2px' });
+    const nameCell = document.createElement('span');
+    nameCell.style.display = 'flex'; nameCell.style.alignItems = 'center';
+    nameCell.appendChild(iconCanvas); nameCell.appendChild(nameEl);
+
+    const stockEl = makeStatCell('0');
+    const valueEl = makeStatCell('0');
+    row.appendChild(nameCell); row.appendChild(stockEl); row.appendChild(valueEl);
+    stockView.appendChild(row);
+    artisanStockRefs[cropType.id] = { stockEl, valueEl, artisanKey, goldValue: ap.goldValue };
+  });
+
+  // Artisan stock total row
+  const artisanTotalRow = document.createElement('div');
+  Object.assign(artisanTotalRow.style, {
+    display: 'grid', gridTemplateColumns: '1fr 1fr 1fr',
+    padding: '7px 14px', gap: '8px',
+    borderTop: '2px solid rgba(196,122,58,0.35)',
+    background: 'rgba(196,122,58,0.06)', alignItems: 'center',
+  });
+  const artisanTotalLabelEl = document.createElement('span');
+  artisanTotalLabelEl.textContent = 'TOTAL';
+  Object.assign(artisanTotalLabelEl.style, { color: '#c47a3a', font: 'bold 12px sans-serif', letterSpacing: '1px' });
+  const artisanTotalCountEl = makeStatCell('0', true);
+  const artisanTotalValueEl = makeStatCell('0', true);
+  artisanTotalRow.appendChild(artisanTotalLabelEl);
+  artisanTotalRow.appendChild(artisanTotalCountEl);
+  artisanTotalRow.appendChild(artisanTotalValueEl);
+  stockView.appendChild(artisanTotalRow);
+
   function updateStock() {
     let totalCount = 0, totalValue = 0;
     Object.values(CROPS).forEach(cropType => {
@@ -299,6 +391,19 @@ export function initStatsPanel({ CROPS, cropStats, tilesetImage, cropInventory }
     });
     stockTotalCountEl.textContent = shortNumber(totalCount);
     stockTotalValueEl.textContent = `🪙 ${shortNumber(totalValue)}`;
+
+    // Artisan goods stock
+    let artisanTotal = 0, artisanTotalVal = 0;
+    Object.values(artisanStockRefs).forEach(refs => {
+      const count = (artisanInventory ? (artisanInventory.get(refs.artisanKey) || 0) : 0);
+      const value = count * refs.goldValue;
+      refs.stockEl.textContent = shortNumber(count);
+      refs.valueEl.textContent = `🪙 ${shortNumber(value)}`;
+      artisanTotal += count;
+      artisanTotalVal += value;
+    });
+    artisanTotalCountEl.textContent = shortNumber(artisanTotal);
+    artisanTotalValueEl.textContent = `🪙 ${shortNumber(artisanTotalVal)}`;
   }
 
   setInterval(() => { if (activeSubTab === 'stock') updateStock(); }, 1000);
@@ -394,7 +499,10 @@ export function initStatsPanel({ CROPS, cropStats, tilesetImage, cropInventory }
 
   const farmingTimeEl     = makeTimeCard('🌾', 'Farming',     '#6dbd5a');
   const socializingTimeEl = makeTimeCard('💬', 'Socializing', '#5ab5bd');
+  const artisanTimeEl     = makeTimeCard('🏺', 'Artisan',     '#c47a3a');
   const sleepingTimeEl    = makeTimeCard('😴', 'Sleeping',    '#9a7fc7');
+
+  Object.assign(timeGrid.style, { gridTemplateColumns: '1fr 1fr 1fr 1fr' });
 
   timeSection.appendChild(timeGrid);
   panel.appendChild(timeSection);
@@ -402,6 +510,7 @@ export function initStatsPanel({ CROPS, cropStats, tilesetImage, cropInventory }
   function updateTimeSpent() {
     if (window.getTotalFarmingHours)     farmingTimeEl.textContent     = `${window.getTotalFarmingHours().toFixed(1)} h`;
     if (window.getTotalSocializingHours) socializingTimeEl.textContent = `${window.getTotalSocializingHours().toFixed(1)} h`;
+    if (window.getTotalArtisanHours)     artisanTimeEl.textContent     = `${window.getTotalArtisanHours().toFixed(1)} h`;
     if (window.getTotalSleepingHours)    sleepingTimeEl.textContent    = `${window.getTotalSleepingHours().toFixed(1)} h`;
   }
 

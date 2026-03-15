@@ -916,7 +916,7 @@ async function main() {
 
   // Stats panel
   const statsTabIndex = bottomTabs.findIndex(t => t.full === 'Stats');
-  const stats = initStatsPanel({ CROPS, cropStats, tilesetImage, cropInventory });
+  const stats = initStatsPanel({ CROPS, cropStats, tilesetImage, cropInventory, artisanInventory });
 
   // Manage Farm panel
   const manageFarmTabIndex = bottomTabs.findIndex(t => t.full === 'Manage Farm');
