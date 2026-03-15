@@ -460,7 +460,7 @@ export function initRealEstatePanel({
       panel.appendChild(artisanSecHeader);
 
       artisanZones.forEach((zone, i) => {
-        const cost = artisanZoneCostMap ? (artisanZoneCostMap.get(zone.name) ?? 25000) : 25000;
+        const cost = artisanZoneCostMap ? (artisanZoneCostMap.get(zone.name) ?? 0) : 0;
         const owned = unlockedArtisanZones && unlockedArtisanZones.has(zone.name);
         if (owned) return; // hide already-bought workshops
 
