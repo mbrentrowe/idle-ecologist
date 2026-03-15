@@ -253,6 +253,18 @@ async function main() {
   Object.values(CROPS).forEach(ct => {
     if (ct.artisanProduct) artisanStats.set(`${ct.id}_artisan`, { crafted: 0, sold: 0, lifetimeSales: 0 });
   });
+  // Artisan zone product assignments: zoneName → cropId
+  const artisanZoneProductMap = new Map();
+
+  function assignDefaultArtisanProduct(zoneName) {
+    if (artisanZoneProductMap.has(zoneName)) return;
+    const defaultCrop = Object.values(CROPS).find(ct => {
+      if (!ct.artisanProduct) return false;
+      const s = cropStats.get(ct.id);
+      return s && s.sold >= ct.artisanProduct.unlockCropSold;
+    });
+    if (defaultCrop) artisanZoneProductMap.set(zoneName, defaultCrop.id);
+  }
 
   const player = {
     x: startX, y: startY,
@@ -804,17 +816,15 @@ async function main() {
 
     // Draw artisan product icons above active artisan zones during artisan hours
     if (schedulePanel && schedulePanel.isArtisanTime(calendarAccum)) {
-      const unlockedArtisanProducts = Object.values(CROPS).filter(ct => {
-        if (!ct.artisanProduct) return false;
-        const s = cropStats.get(ct.id);
-        return s && s.sold >= ct.artisanProduct.unlockCropSold;
-      });
       const unlockedArtisanList = artisanZones.filter(z => unlockedArtisanZones.has(z.name));
-      if (unlockedArtisanProducts.length > 0 && unlockedArtisanList.length > 0) {
+      if (unlockedArtisanList.length > 0) {
         const iconSize = 14;
         const ACOLS   = 125;
-        unlockedArtisanList.forEach((zone, idx) => {
-          const ap  = unlockedArtisanProducts[idx % unlockedArtisanProducts.length].artisanProduct;
+        unlockedArtisanList.forEach((zone) => {
+          const assignedCropId = artisanZoneProductMap.get(zone.name);
+          const assignedCrop   = assignedCropId ? CROPS[assignedCropId] : null;
+          const ap             = assignedCrop ? assignedCrop.artisanProduct : null;
+          if (!ap) return;
           const cx  = Math.round(zone.x + (zone.width  || 0) / 2);
           const cy  = Math.round(zone.y + (zone.height || 0) / 2);
           const bcy = cy - iconSize - 8;  // bubble centre Y (above zone)
@@ -972,6 +982,7 @@ async function main() {
   const manageFarmTabIndex = bottomTabs.findIndex(t => t.full === 'Manage Farm');
   const manageFarm = initManageFarmPanel({
     cropZones, unlockedZones, unlockedCrops, zoneCrops, CROPS, CropInstance, tilesetImage, cropStats,
+    artisanZones, unlockedArtisanZones, artisanZoneProductMap,
     onCropChange: () => { draw(); drawMenuBar(); },
   });
 
@@ -992,7 +1003,11 @@ async function main() {
     cropZones, unlockedZones, gold, zoneCrops, CROPS, CropInstance,
     artisanZones, unlockedArtisanZones, artisanZoneCostMap,
     getIncomePerSecond, zoneCostMap,
-    onPurchase: () => { draw(); drawMenuBar(); manageFarm.update(); },
+    onPurchase: () => {
+      // Auto-assign default artisan product for any newly bought artisan zone
+      for (const zoneName of unlockedArtisanZones) assignDefaultArtisanProduct(zoneName);
+      draw(); drawMenuBar(); manageFarm.update();
+    },
   });
 
   // --- Event criteria checker ---
@@ -1054,6 +1069,7 @@ async function main() {
       cropInventory: Object.fromEntries(cropInventory),
       artisanInventory: Object.fromEntries(artisanInventory),
       artisanStats: Object.fromEntries(Array.from(artisanStats.entries()).map(([k, s]) => [k, { ...s }])),
+      artisanZoneProductMap: Object.fromEntries(artisanZoneProductMap),
       autoSellSet: Array.from(autoSellSet),
       unlockedZones: Array.from(unlockedZones),
       unlockedArtisanZones: Array.from(unlockedArtisanZones),
@@ -1114,6 +1130,12 @@ async function main() {
       unlockedArtisanZones.clear();
       state.unlockedArtisanZones.forEach(z => unlockedArtisanZones.add(z));
     }
+    if (state.artisanZoneProductMap) {
+      artisanZoneProductMap.clear();
+      Object.entries(state.artisanZoneProductMap).forEach(([k, v]) => artisanZoneProductMap.set(k, v));
+    }
+    // Auto-assign defaults for any unlocked zones with no assignment (e.g. saves before this feature)
+    for (const zoneName of unlockedArtisanZones) assignDefaultArtisanProduct(zoneName);
     if (state.unlockedCrops) {
       unlockedCrops.clear();
       state.unlockedCrops.forEach(c => unlockedCrops.add(c));
@@ -1293,15 +1315,18 @@ async function main() {
       if (artisanTickTimer >= ARTISAN_INTERVAL_SECS) {
         artisanTickTimer -= ARTISAN_INTERVAL_SECS;
         let artisanProduced = false;
-        Object.values(CROPS).forEach(cropType => {
-          const ap = cropType.artisanProduct;
-          if (!ap) return;
-          const sold = cropStats.get(cropType.id)?.sold ?? 0;
+        getUnlockedArtisanZoneList().forEach(zone => {
+          const cropId = artisanZoneProductMap.get(zone.name);
+          if (!cropId) return;
+          const cropType = CROPS[cropId];
+          if (!cropType || !cropType.artisanProduct) return;
+          const ap   = cropType.artisanProduct;
+          const sold = cropStats.get(cropId)?.sold ?? 0;
           if (sold < ap.unlockCropSold) return;
-          const have = cropInventory.get(cropType.id) || 0;
+          const have = cropInventory.get(cropId) || 0;
           if (have < ap.cropInputCount) return;
-          cropInventory.set(cropType.id, have - ap.cropInputCount);
-          const artisanKey = `${cropType.id}_artisan`;
+          cropInventory.set(cropId, have - ap.cropInputCount);
+          const artisanKey = `${cropId}_artisan`;
           const astat = artisanStats.get(artisanKey);
           if (astat) astat.crafted += 1;
           if (autoSellSet.has(artisanKey)) {
