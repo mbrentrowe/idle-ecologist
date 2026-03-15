@@ -804,13 +804,17 @@ async function main() {
 
     // Draw artisan product icons above active artisan zones during artisan hours
     if (schedulePanel && schedulePanel.isArtisanTime(calendarAccum)) {
-      const artisanCropList = Object.values(CROPS).filter(ct => ct.artisanProduct);
+      const unlockedArtisanProducts = Object.values(CROPS).filter(ct => {
+        if (!ct.artisanProduct) return false;
+        const s = cropStats.get(ct.id);
+        return s && s.sold >= ct.artisanProduct.unlockCropSold;
+      });
       const unlockedArtisanList = artisanZones.filter(z => unlockedArtisanZones.has(z.name));
-      if (artisanCropList.length > 0 && unlockedArtisanList.length > 0) {
+      if (unlockedArtisanProducts.length > 0 && unlockedArtisanList.length > 0) {
         const iconSize = 14;
         const ACOLS   = 125;
         unlockedArtisanList.forEach((zone, idx) => {
-          const ap  = artisanCropList[idx % artisanCropList.length].artisanProduct;
+          const ap  = unlockedArtisanProducts[idx % unlockedArtisanProducts.length].artisanProduct;
           const cx  = Math.round(zone.x + (zone.width  || 0) / 2);
           const cy  = Math.round(zone.y + (zone.height || 0) / 2);
           const bcy = cy - iconSize - 8;  // bubble centre Y (above zone)
