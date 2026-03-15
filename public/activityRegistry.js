@@ -40,8 +40,22 @@ export const WORK_ACTIVITIES = [
      */
     alwaysActive: true,
 
-    /** Fallback cost when no "cost" property is set in Tiled. */
-    defaultZoneCost: 25000,
+    /**
+     * Returns the purchase cost for a zone at the given rank (0-based).
+     * Tiled 'cost' property always overrides this.
+     * Artisan workshops scale ~×3 per rank, anchored to the mid-game gold curve:
+     *   Rank 0: 75,000  (carrot tier, ~100k lifetime gold)
+     *   Rank 1: 225,000 (blueberry tier, ~250k)
+     *   Rank 2: 675,000 (parsnip tier, ~600k)
+     *   Rank 3: 2,025,000 (lettuce tier, ~1.5M)
+     *   Rank 4: 6,075,000 (cauliflower tier, ~4M)
+     */
+    computeZoneCost(rank) {
+      return Math.round(75000 * Math.pow(3, rank));
+    },
+
+    /** Fallback flat cost used only if no Tiled property AND computeZoneCost is not defined. */
+    defaultZoneCost: 75000,
 
     /** How often (real seconds at 1× speed) each zone runs one production batch. */
     productionIntervalSecs: 5,

@@ -266,11 +266,21 @@ async function main() {
   });
 
   // Build cost maps for all work activities (getTiledProp is hoisted, safe to call here)
+  // Zones without a Tiled 'cost' property use computeZoneCost(rank) if defined, else defaultZoneCost.
   for (const [, ws] of workState) {
+    let rank = 0;
     ws.zones.forEach(zone => {
       const rawCost = getTiledProp(zone, 'cost');
-      const cost = typeof rawCost === 'number' ? rawCost : (parseInt(rawCost, 10) || ws.act.defaultZoneCost);
+      let cost;
+      if (rawCost != null && !isNaN(typeof rawCost === 'number' ? rawCost : parseInt(rawCost, 10))) {
+        cost = typeof rawCost === 'number' ? rawCost : parseInt(rawCost, 10);
+      } else if (typeof ws.act.computeZoneCost === 'function') {
+        cost = ws.act.computeZoneCost(rank);
+      } else {
+        cost = ws.act.defaultZoneCost;
+      }
       ws.costMap.set(zone.name, cost);
+      rank++;
     });
   }
   // Backward-compat alias
